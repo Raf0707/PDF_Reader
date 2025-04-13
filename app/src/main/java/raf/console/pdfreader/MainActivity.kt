@@ -1,10 +1,15 @@
 package raf.console.pdfreader
 
+import android.Manifest.permission.READ_MEDIA_IMAGES
+import android.Manifest.permission.READ_MEDIA_VIDEO
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -65,11 +70,18 @@ import androidx.core.content.FileProvider
 import raf.console.pdfreader.ui.theme.AppTheme
 import raf.console.pdfreader.viewmodel.PdfViewModel
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
 
 class MainActivity : ComponentActivity() {
 
+    private val REQUEST_CODE_PERMISSIONS = 1001
+    private val REQUEST_CODE_DOCUMENT = 1002
+    private val REQUEST_CODE_MANAGE_STORAGE = 1003
+
     private val viewModel: PdfViewModel by viewModels()
+    private var pendingPdfUri: Uri? = null
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,6 +97,55 @@ class MainActivity : ComponentActivity() {
                 viewModel.clearResource()
             }
         })
+
+
+
+
+        /*intent?.data?.let { uri ->
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }*/
+
+        /*intent?.data?.let { uri ->
+            if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } else {
+                // Обработка случая, когда постоянное разрешение не предоставлено
+                // Можно запросить временный доступ или показать сообщение пользователю
+            }
+        }*/
+
+       // handleIncomingIntent(intent)
+
+        handleIncomingIntent(intent)
+
+        intent?.data?.let { uri ->
+            try {
+                // Проверяем, есть ли флаг PERSISTABLE в исходном Intent
+                if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } else {
+                    // Для временных URI просто запрашиваем временный доступ
+                    contentResolver.query(uri, null, null, null, null)?.close()
+                }
+            } catch (e: SecurityException) {
+                // Обработка ошибки доступа
+                Log.e("MainActivity", "Failed to get access to URI: $uri", e)
+                // Можно показать пользователю сообщение об ошибке
+            }
+        }
+
+        //val context = LocalContext.current
+        //context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
         setContent {
             AppTheme {
                 Surface(
@@ -92,6 +153,14 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val state = viewModel.stateFlow.collectAsState()
+
+                    intent?.data?.let { uri ->
+                        contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
+
                     Scaffold(
 
                     ) { padding ->
@@ -116,6 +185,186 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIncomingIntent(intent)
+        intent?.data?.let { uri ->
+            try {
+                if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                // Обновляем данные в ViewModel
+                viewModel.openResource(ResourceType.Remote(uri.toString(), headers = hashMapOf("" to "")))
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error handling new intent", e)
+            }
+        }
+    }
+
+    /*override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleIncomingIntent(intent)
+        // Та же логика обработки URI, что и в onCreate
+    }*/
+
+    /*override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        intent?.let { handleIncomingIntent(it) }
+    }*/
+
+    /*private fun handleIncomingIntent(intent: Intent?) {
+        when (intent?.action) {
+            Intent.ACTION_VIEW -> {
+                intent.data?.let { uri ->
+                    // Проверяем MIME тип
+                    if (contentResolver.getType(uri) == "application/pdf") {
+                        viewModel.openResource(ResourceType.Local(uri))
+                    }
+                }
+            }
+        }
+    }*/
+
+
+
+    /*private fun handleIncomingIntent(intent: Intent?) {
+        when (intent?.action) {
+            Intent.ACTION_VIEW -> {
+                intent.data?.let { uri ->
+                    try {
+                        // Запрашиваем постоянные разрешения
+                        contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+
+                        // Теперь можно безопасно открывать файл
+                        openPdfFromUri(uri)
+                    } catch (e: SecurityException) {
+                        // Обработка ошибки, если разрешения не даны
+                        //showError("Нет доступа к файлу. Пожалуйста, выберите файл снова.")
+                    }
+                }
+            }
+        }
+    }*/
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        intent?.data?.let { uri ->
+            try {
+                // 1. Попробуем определить реальный MIME-тип
+                val mimeType = contentResolver.getType(uri) ?: "application/pdf"
+
+                // 2. Если это не PDF - выходим
+                if (!mimeType.equals("application/pdf", ignoreCase = true)) {
+                    Toast.makeText(this, "Файл не является PDF", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                // 3. Пробуем получить доступ к файлу (даже без persistable прав)
+                val inputStream = contentResolver.openInputStream(uri)
+                inputStream?.use { stream ->
+                    // 4. Если дошли сюда - доступ есть, можно работать с файлом
+                    viewModel.openResource(ResourceType.Remote(uri.toString()))
+
+                    // 5. Пробуем получить постоянные права (если доступны)
+                    try {
+                        if (intent?.flags?.and(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                            contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        } else {
+
+                        }
+                    } catch (e: SecurityException) {
+                        Log.w("MainActivity", "Cannot get persistable permissions for $uri")
+                    }
+                } ?: run {
+                    Toast.makeText(this, "Не удалось открыть файл", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error handling URI", e)
+                Toast.makeText(this, "Ошибка при открытии файла", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun handleWhatsAppUri(uri: Uri) {
+        try {
+            // 1. Запрашиваем временные разрешения
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+
+            // 2. Копируем файл во внутреннее хранилище
+            val cachedFile = copyFileToCache(uri) ?: throw IOException("Не удалось скопировать файл")
+
+            // 3. Открываем копию файла
+            viewModel.openResource(ResourceType.Local(Uri.fromFile(cachedFile)))
+
+        } catch (e: SecurityException) {
+            // Если нет разрешений, просим пользователя выбрать файл через системный пикер
+            openDocumentPicker()
+        } catch (e: Exception) {
+            //showError("Ошибка: ${e.localizedMessage}")
+        }
+    }
+
+    private fun copyFileToCache(uri: Uri): File? {
+        return try {
+            val cacheFile = File(cacheDir, "temp_${System.currentTimeMillis()}.pdf")
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(cacheFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            cacheFile
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun copyFileToTempStorage(uri: Uri): File? {
+        return try {
+            val inputStream = contentResolver.openInputStream(uri) ?: return null
+            val tempFile = File(cacheDir, "temp_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(tempFile).use { output ->
+                inputStream.copyTo(output)
+            }
+            tempFile
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun openPdfFromUri(uri: Uri) {
+        try {
+            // Проверяем MIME тип
+            val mimeType = contentResolver.getType(uri)
+            if (mimeType == "application/pdf") {
+                viewModel.openResource(ResourceType.Local(uri))
+            } else {
+                //showError("Выбранный файл не является PDF")
+            }
+        } catch (e: Exception) {
+            //showError("Ошибка открытия файла: ${e.localizedMessage}")
+        }
+    }
+
+
+    private fun makeDefaultPdfViewer() {
+        val intent = Intent(Intent.ACTION_VIEW)
+            .addCategory(Intent.CATEGORY_DEFAULT)
+            .setDataAndType(Uri.parse("file://dummy.pdf"), "application/pdf")
+
+        val chooser = Intent.createChooser(intent, "Выберите PDF ридер")
+        startActivity(chooser)
+    }
 
     //@OptIn(ExperimentalMaterialApi::class)
     @Composable
@@ -614,3 +863,5 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val OPEN_DOCUMENT_REQUEST_CODE = 0x33
+
+
