@@ -36,6 +36,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -54,23 +55,28 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
 import raf.console.archnotes.utils.ChromeCustomTabUtil
 import raf.console.pdfreader.ui.theme.AppTheme
+import raf.console.pdfreader.util.AppPreferences
 import raf.console.pdfreader.viewmodel.PdfViewModel
+import raf.console.pdfreader.viewmodel.PdfViewModelFactory
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -78,16 +84,15 @@ import java.io.IOException
 
 class MainActivity : ComponentActivity() {
 
-    private val REQUEST_CODE_PERMISSIONS = 1001
-    private val REQUEST_CODE_DOCUMENT = 1002
-    private val REQUEST_CODE_MANAGE_STORAGE = 1003
-
-    private val viewModel: PdfViewModel by viewModels()
-    private var pendingPdfUri: Uri? = null
+    private lateinit var preferences: AppPreferences
+    private val viewModel: PdfViewModel by viewModels {
+        PdfViewModelFactory(AppPreferences(this), this)
+    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        preferences = AppPreferences(this)
 
         window.setFlags(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
@@ -132,21 +137,21 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val state = viewModel.stateFlow.collectAsState()
 
-                    Scaffold(
-
-                    ) { padding ->
+                    Scaffold { padding ->
                         Box(modifier = Modifier.padding(padding)) {
                             when (val actualState = state.value) {
-                                null -> SelectionView()
+                                null -> SelectionView(viewModel)
                                 is VerticalPdfReaderState -> PDFView(
                                     pdfState = actualState,
                                     onBack = { viewModel.clearResource() },
-                                    onOpenDocument = { openDocumentPicker() }
+                                    onOpenDocument = { openDocumentPicker() },
+                                    viewModel = viewModel
                                 )
                                 is HorizontalPdfReaderState -> HPDFView(
                                     pdfState = actualState,
                                     onBack = { viewModel.clearResource() },
-                                    onOpenDocument = { openDocumentPicker() }
+                                    onOpenDocument = { openDocumentPicker() },
+                                    viewModel = viewModel
                                 )
                             }
                         }
@@ -496,7 +501,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun SelectionView() {
+    fun SelectionView(viewModel: PdfViewModel) {
         val context: Context = LocalContext.current
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -515,10 +520,8 @@ class MainActivity : ComponentActivity() {
                 Text(text = "Прокрутка")
                 Spacer(modifier = Modifier.width(16.dp))
                 Switch(
-                    checked = viewModel.switchState.value,
-                    onCheckedChange = {
-                        viewModel.switchState.value = it
-                    }
+                    checked = this@MainActivity.viewModel.switchState,
+                    onCheckedChange = { this@MainActivity.viewModel.toggleReadingMode() }
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(text = "Страницы")
@@ -656,7 +659,8 @@ class MainActivity : ComponentActivity() {
     fun PDFView(
         pdfState: VerticalPdfReaderState,
         onBack: () -> Unit,
-        onOpenDocument: () -> Unit
+        onOpenDocument: () -> Unit,
+        viewModel: PdfViewModel
     ) {
         var showDialog by remember { mutableStateOf(false) }
         var pageInput by remember { mutableStateOf("") }
@@ -664,9 +668,14 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
-        // Обработка ошибок
         LaunchedEffect(pdfState.error) {
-            pdfState.error?.let { error ->
+            if (pdfState.pdfPageCount > 0) {
+                viewModel.saveCurrentPage(pdfState.currentPage)
+            }
+            pdfState.error?.let {
+                if (pdfState.pdfPageCount > 0) {
+                    viewModel.saveCurrentPage(pdfState.currentPage)
+                }
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -676,8 +685,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Box(contentAlignment = Alignment.TopStart) {
-            // Показываем индикатор загрузки, если файл ещё не загружен
+        Box(
+            contentAlignment = Alignment.TopStart,
+            modifier = Modifier.fillMaxSize()
+        ) {
             if (pdfState.pdfPageCount == 0) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     LinearProgressIndicator(
@@ -688,35 +699,40 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            VerticalPDFReader(
-                state = pdfState,
+            // Основное содержимое PDF с отступами
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(color = Color.White)
-            )
+                    .padding(top = 56.dp, bottom = 72.dp) // Отступы сверху и снизу
+            ) {
+                VerticalPDFReader(
+                    state = pdfState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                )
+            }
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.height(4.dp))
+            // Верхняя панель с информацией о странице
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .background(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
                                 shape = MaterialTheme.shapes.medium
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            )
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                start = 8.dp,
-                                end = 8.dp,
-                                top = 8.dp,
-                                bottom = 4.dp
-                            )
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
                                 text = if (pdfState.pdfPageCount > 0)
@@ -748,36 +764,57 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Слайдер внизу экрана
+            if (pdfState.pdfPageCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                ) {
+                    Slider(
+                        value = pdfState.currentPage.toFloat(),
+                        onValueChange = { newValue ->
+                            pdfState.jumpTo(newValue.toInt(), coroutineScope)
+                        },
+                        valueRange = 0f..(pdfState.pdfPageCount).toFloat(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    )
+                }
+            }
+
             if (showDialog) {
                 AlertDialog(
                     onDismissRequest = { showDialog = false },
                     title = { Text("Перейти на страницу") },
                     text = {
-                        OutlinedTextField(
-                            value = pageInput,
-                            onValueChange = { newValue ->
-                                pageInput = newValue.filter { it.isDigit() }
-                            },
-                            label = { Text("Номер страницы (1-${pdfState.pdfPageCount})") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
+                        Column {
+                            OutlinedTextField(
+                                value = pageInput,
+                                onValueChange = { pageInput = it.filter { ch -> ch.isDigit() } },
+                                label = { Text("Номер страницы (1-${pdfState.pdfPageCount})") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+
+                            val page = pageInput.toIntOrNull()
+                            when {
+                                page == null && pageInput.isNotEmpty() ->
+                                    Text("Введите число", color = MaterialTheme.colorScheme.error)
+                                page != null && page < 1 ->
+                                    Text("Страница не может быть меньше 1", color = MaterialTheme.colorScheme.error)
+                                page != null && page > pdfState.pdfPageCount ->
+                                    Text("Максимальная страница: ${pdfState.pdfPageCount}", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
                     },
                     confirmButton = {
                         Button(
+                            enabled = pageInput.toIntOrNull()?.let { it in 1..pdfState.pdfPageCount } ?: false,
                             onClick = {
-                                val page = pageInput.toIntOrNull() ?: return@Button
-                                when {
-                                    page < 1 -> {
-                                        // Показываем ошибку, если страница меньше 1
-                                    }
-                                    page > pdfState.pdfPageCount -> {
-                                        // Показываем ошибку, если страница больше максимума
-                                    }
-                                    else -> {
-                                        pdfState.jumpTo(page - 1, coroutineScope)
-                                        showDialog = false
-                                    }
-                                }
+                                pdfState.jumpTo(pageInput.toInt() - 1, coroutineScope)
+                                showDialog = false
                             }
                         ) {
                             Text("Перейти")
@@ -792,7 +829,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Snackbar для отображения ошибок
         Box(modifier = Modifier.fillMaxSize()) {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -800,12 +836,10 @@ class MainActivity : ComponentActivity() {
             ) { data ->
                 Snackbar(
                     action = {
-                        TextButton(
-                            onClick = {
-                                data.performAction()
-                                onOpenDocument()
-                            }
-                        ) {
+                        TextButton(onClick = {
+                            data.performAction()
+                            onOpenDocument()
+                        }) {
                             Text("Выбрать")
                         }
                     }
@@ -817,11 +851,13 @@ class MainActivity : ComponentActivity() {
     }
 
 
+
     @Composable
     fun HPDFView(
         pdfState: HorizontalPdfReaderState,
         onBack: () -> Unit,
-        onOpenDocument: () -> Unit
+        onOpenDocument: () -> Unit,
+        viewModel: PdfViewModel
     ) {
         var showDialog by remember { mutableStateOf(false) }
         var pageInput by remember { mutableStateOf("") }
@@ -829,9 +865,14 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
-        // Обработка ошибок
         LaunchedEffect(pdfState.error) {
-            pdfState.error?.let { error ->
+            if (pdfState.pdfPageCount > 0) {
+                viewModel.saveCurrentPage(pdfState.currentPage)
+            }
+            pdfState.error?.let {
+                if (pdfState.pdfPageCount > 0) {
+                    viewModel.saveCurrentPage(pdfState.currentPage)
+                }
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -841,8 +882,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Box(contentAlignment = Alignment.TopStart) {
-            // Показываем индикатор загрузки, если файл ещё не загружен
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
             if (pdfState.pdfPageCount == 0) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     LinearProgressIndicator(
@@ -853,39 +895,44 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            HorizontalPDFReader(
-                state = pdfState,
+            // Основное содержимое PDF с отступами
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(color = Color.White)
-            )
+                    .padding(top = 56.dp, bottom = 72.dp)
+            ) {
+                HorizontalPDFReader(
+                    state = pdfState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                )
+            }
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Spacer(modifier = Modifier.height(4.dp))
+            // Верхняя панель с информацией о странице
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .background(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
                                 shape = MaterialTheme.shapes.medium
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            )
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                start = 8.dp,
-                                end = 8.dp,
-                                top = 8.dp,
-                                bottom = 4.dp
-                            )
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
                                 text = if (pdfState.pdfPageCount > 0)
-                                    "Страница: ${pdfState.currentPage}/${pdfState.pdfPageCount}"
+                                    "Страница: ${pdfState.currentPage + 1}/${pdfState.pdfPageCount}"
                                 else "Загрузка...",
                                 modifier = Modifier.clickable {
                                     if (pdfState.pdfPageCount > 0) showDialog = true
@@ -910,6 +957,27 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                }
+            }
+
+            // Слайдер внизу экрана
+            if (pdfState.pdfPageCount > 1) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                ) {
+                    Slider(
+                        value = pdfState.currentPage.toFloat(),
+                        onValueChange = { newPage ->
+                            pdfState.jumpTo(newPage.toInt(), coroutineScope)
+                        },
+                        valueRange = 0f..(pdfState.pdfPageCount - 1).toFloat(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    )
                 }
             }
 
@@ -981,6 +1049,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+
+    private fun isPointInInteractiveArea(
+        offset: Offset,
+        topBarHeight: Dp,
+        sliderHeight: Dp,
+        screenHeight: Dp,
+        density: Density
+    ): Boolean {
+        val topBarPx = density.run { topBarHeight.toPx() }
+        val sliderPx = density.run { sliderHeight.toPx() }
+        val screenHeightPx = density.run { screenHeight.toPx() }
+
+        val topBarArea = Rect(0f, 0f, Float.MAX_VALUE, topBarPx)
+        val sliderArea = Rect(0f, screenHeightPx - sliderPx, Float.MAX_VALUE, screenHeightPx)
+
+        return topBarArea.contains(offset) || sliderArea.contains(offset)
     }
 
     private fun openDocumentPicker() {

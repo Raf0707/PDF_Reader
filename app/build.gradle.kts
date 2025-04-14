@@ -69,4 +69,7 @@ dependencies {
     // Для поддержки ResponseBody.stream() (если нужно)
     implementation ("com.squareup.okhttp3:logging-interceptor:4.10.0")
 
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
 }

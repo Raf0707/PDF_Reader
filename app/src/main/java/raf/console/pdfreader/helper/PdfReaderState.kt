@@ -4,13 +4,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import kotlinx.coroutines.CoroutineScope
 import java.io.File
+
+interface NavigablePdfState {
+    fun jumpTo(page: Int, coroutineScope: CoroutineScope)
+}
 
 abstract class PdfReaderState(
     val resource: ResourceType,
     isZoomEnable: Boolean = false,
     val isAccessibleEnable: Boolean = false,
-    ) {
+    ) : NavigablePdfState {
     internal var mError by mutableStateOf<Throwable?>(null)
     val error: Throwable?
         get() = mError

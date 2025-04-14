@@ -221,9 +221,9 @@ class MainScreen : ComponentActivity() {
                 Text(text = "List view")
                 Spacer(modifier = Modifier.width(16.dp))
                 Switch(
-                    checked = viewModel.switchState.value,
+                    checked = viewModel.switchState,
                     onCheckedChange = {
-                        viewModel.switchState.value = it
+                        viewModel.switchState = it
                     }
                     /*colors = SwitchDefaults.colors(
                         uncheckedThumbColor = MaterialTheme.colors.secondaryVariant,

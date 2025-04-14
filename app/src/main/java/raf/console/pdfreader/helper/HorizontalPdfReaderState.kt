@@ -15,7 +15,7 @@ class HorizontalPdfReaderState(
     resource: ResourceType,
     isZoomEnable: Boolean = false,
     isAccessibleEnable: Boolean = false,
-) : PdfReaderState(resource, isZoomEnable, isAccessibleEnable) {
+) : PdfReaderState(resource, isZoomEnable, isAccessibleEnable), NavigablePdfState {
 
     internal var pagerState: PagerState = PagerState()
 
@@ -25,12 +25,14 @@ class HorizontalPdfReaderState(
     override val isScrolling: Boolean
         get() = pagerState.isScrollInProgress
 
-    fun jumpTo(page: Int, coroutineScope: CoroutineScope) {
-        if (page < 1 || page > pdfPageCount) return
+    override fun jumpTo(page: Int, coroutineScope: CoroutineScope) {
+        if (page < 0 || page > pdfPageCount) return
 
-        val targetPage = page + 1 // Преобразуем в 0-based индекс
+        val targetPage = page // Преобразуем в 0-based индекс
         coroutineScope.launch {
-            pagerState.animateScrollToPage(targetPage)
+            if (pagerState.currentPage != targetPage) {
+                pagerState.animateScrollToPage(targetPage)
+            }
         }
     }
 

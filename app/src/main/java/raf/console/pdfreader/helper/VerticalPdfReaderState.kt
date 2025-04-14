@@ -14,7 +14,7 @@ class VerticalPdfReaderState(
     resource: ResourceType,
     isZoomEnable: Boolean = false,
     isAccessibleEnable: Boolean = false,
-) : PdfReaderState(resource, isZoomEnable, isAccessibleEnable) {
+) : PdfReaderState(resource, isZoomEnable, isAccessibleEnable), NavigablePdfState {
 
     internal var lazyState: LazyListState = LazyListState()
         private set
@@ -45,8 +45,8 @@ class VerticalPdfReaderState(
         } ?: 0
     }
 
-    fun jumpTo(page: Int, coroutineScope: CoroutineScope) {
-        if (page < 1 || page > pdfPageCount) return
+    override fun jumpTo(page: Int, coroutineScope: CoroutineScope) {
+        if (page < 0 || page > pdfPageCount) return
 
         val targetIndex = page // преобразуем в 0-based индекс
         coroutineScope.launch {
