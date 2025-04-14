@@ -631,6 +631,24 @@ class MainActivity : ComponentActivity() {
                     ).show()
                 }
             }
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.shareapp),
+                title = "Поделиться приложением",
+                text = "Поделитесь приложением «PDF Reader без рекламы» с друзьями и знакомыми"
+            ) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Скачайте приложение «PDF Reader без рекламы» в каталоге RuStore", "https://www.rustore.ru/catalog/app/raf.console.pdfreader")
+                clipboard.setPrimaryClip(clip)
+
+                // Создаем Intent для диалога "Поделиться"
+                val shareIntent = Intent(Intent.ACTION_SEND)
+                shareIntent.type = "text/plain"
+                shareIntent.putExtra(Intent.EXTRA_TEXT, "Скачайте приложение «PDF Reader без рекламы» в каталоге RuStore \n\n https://www.rustore.ru/catalog/app/raf.console.pdfreader")
+
+                // Запускаем диалог "Поделиться"
+                context.startActivity(Intent.createChooser(shareIntent, "Поделиться приложением"))
+            }
         }
     }
 
