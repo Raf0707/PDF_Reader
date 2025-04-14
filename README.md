@@ -1,9 +1,12 @@
-Проект создан на основе форка проекта bouquet (по ссылке https://github.com/GRizzi91/bouquet) и распространяется по лицензии Apache 2.0
+## ⚠ This is the official repository of the "PDF Reader без рекламы" application. The sole author and owner is Rafail Kikmatulin. This application is published exclusively by me in RuStore.
+## ⚠ Это официальное хринилище приложения "PDF Reader без рекламы". Единственным автором и владельцем является Рафаил Кикматулин. Данное приложение публикуется исключительно мной в RuStore.
 
-Уведомляю разработчика об изменениях в файлах библиотеки: HorizontalPdfReaderState.kt и VerticalPdfReaderState.kt:
+## Проект создан с использованием библиотеки bouquet (по ссылке https://github.com/GRizzi91/bouquet) и распространяется по лицензии Apache 2.0
+
+### Уведомляю разработчика об изменениях в файлах библиотеки: HorizontalPdfReaderState.kt и VerticalPdfReaderState.kt:
 - Добавлена функция jumpTo(page: Int, coroutineScope: CoroutineScope) - реализация перехода на страницу в диапазоне документа.
 
-Реализация:
+### Реализация:
 
 ```
 fun jumpTo(page: Int) {
