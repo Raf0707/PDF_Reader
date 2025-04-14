@@ -50,6 +50,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.browser)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -67,4 +68,5 @@ dependencies {
 
     // Для поддержки ResponseBody.stream() (если нужно)
     implementation ("com.squareup.okhttp3:logging-interceptor:4.10.0")
+
 }

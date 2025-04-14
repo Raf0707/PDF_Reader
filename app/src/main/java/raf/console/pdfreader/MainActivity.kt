@@ -1,13 +1,11 @@
 package raf.console.pdfreader
 
-import android.Manifest.permission.READ_MEDIA_IMAGES
-import android.Manifest.permission.READ_MEDIA_VIDEO
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -17,13 +15,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.R
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -31,7 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,11 +42,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,13 +55,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
+import raf.console.archnotes.utils.ChromeCustomTabUtil
 import raf.console.pdfreader.ui.theme.AppTheme
 import raf.console.pdfreader.viewmodel.PdfViewModel
 import java.io.File
@@ -129,14 +131,6 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val state = viewModel.stateFlow.collectAsState()
-
-                    /*intent?.data?.let { uri ->
-                        contentResolver.takePersistableUriPermission(
-                            uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    }*/
-                    //openDocumentPicker()
 
                     Scaffold(
 
@@ -310,64 +304,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleIncomingIntent(intent: Intent?) {
-        intent?.data?.let { uri ->
-            try {
-                val mimeType = contentResolver.getType(uri) ?: "application/pdf"
-                if (!mimeType.equals("application/pdf", ignoreCase = true)) {
-                    Toast.makeText(this, "Файл не является PDF", Toast.LENGTH_SHORT).show()
-                    return
-                }
-
-                // Проверяем доступ
-                val inputStream = contentResolver.openInputStream(uri)
-                inputStream?.use { stream ->
-                    viewModel.openResource(ResourceType.Remote(uri.toString()))
-
-                    // Безопасный вызов takePersistableUriPermission
-                    if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
-                        try {
-                            contentResolver.takePersistableUriPermission(
-                                uri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
-                        } catch (e: SecurityException) {
-                            Log.w("MainActivity", "No persistable grant for: $uri", e)
-                        }
-                    }
-                } ?: run {
-                    Toast.makeText(this, "Не удалось открыть файл", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Ошибка при обработке URI", e)
-                Toast.makeText(this, "Ошибка при открытии файла", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-
-    private fun handleWhatsAppUri(uri: Uri) {
-        try {
-            // 1. Запрашиваем временные разрешения
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-
-            // 2. Копируем файл во внутреннее хранилище
-            val cachedFile = copyFileToCache(uri) ?: throw IOException("Не удалось скопировать файл")
-
-            // 3. Открываем копию файла
-            viewModel.openResource(ResourceType.Local(Uri.fromFile(cachedFile)))
-
-        } catch (e: SecurityException) {
-            // Если нет разрешений, просим пользователя выбрать файл через системный пикер
-            openDocumentPicker()
-        } catch (e: Exception) {
-            //showError("Ошибка: ${e.localizedMessage}")
-        }
-    }
-
     private fun copyFileToCache(uri: Uri): File? {
         return try {
             val cacheFile = File(cacheDir, "temp_${System.currentTimeMillis()}.pdf")
@@ -461,7 +397,107 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    fun SelectionElement(
+        icon: Painter,        // <- теперь это Painter
+        title: String,
+        text: String,
+        onClick: () -> Unit
+    ) {
+        Card(
+            onClick = onClick,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .size(24.dp)
+                )
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun SelectionElement(
+        icon: Painter,
+        title: String,
+        text: AnnotatedString? = null,
+        onTextClick: ((String) -> Unit)? = null,  // Новый параметр для обработки кликов по ссылкам
+        onClick: () -> Unit
+    ) {
+        Card(
+            onClick = onClick,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .size(24.dp)
+                )
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    text?.let {
+                        ClickableText(
+                            text = it,
+                            style = MaterialTheme.typography.titleMedium,
+                            onClick = { offset ->
+                                text.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        onTextClick?.let { it1 -> it1(annotation.item) }
+                                    }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
     fun SelectionView() {
+        val context: Context = LocalContext.current
         Column(modifier = Modifier.fillMaxSize()) {
 
             SelectionElement(
@@ -486,6 +522,114 @@ class MainActivity : ComponentActivity() {
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(text = "Страницы")
+            }
+
+            HorizontalDivider(Modifier.height(8.dp))
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.code_24px),
+                title = "Исходный код",
+                text = "Открыть исходный код приложения"
+            ) {
+                ChromeCustomTabUtil.openUrl(
+                    context = context,
+                    url = "https://github.com/Raf0707/PDF_Reader",
+                )
+            }
+
+            val annotatedText = buildAnnotatedString {
+                val baseTextStyle = MaterialTheme.typography.titleMedium.toSpanStyle()
+                val defaultColor = MaterialTheme.colorScheme.onSurface
+                val bouquetColor = MaterialTheme.colorScheme.primary
+
+                withStyle(style = baseTextStyle.copy(color = defaultColor)) {
+                    append("Данный проект выполнен с использованием проекта ")
+
+                    pushStringAnnotation(
+                        tag = "URL",
+                        annotation = "https://github.com/GRizzi91/bouquet"
+                    )
+                    withStyle(
+                        style = baseTextStyle.copy(
+                            color = bouquetColor,
+                            fontWeight = FontWeight.Bold,
+                            textDecoration = TextDecoration.Underline
+                        )
+                    ) {
+                        append("bouquet")
+                    }
+                    pop()
+
+                    append(" и распространяется по лицензии Apache 2.0")
+                }
+            }
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.license),
+                title = "Лицензия",
+                text = annotatedText,
+                onTextClick = { url ->
+                    ChromeCustomTabUtil.openUrl(
+                        context = context,
+                        url = url
+                    )
+                }
+            ) {
+                ChromeCustomTabUtil.openUrl(
+                    context = context,
+                    url = "https://github.com/Raf0707/PDF_Reader/blob/master/LICENSE"
+                )
+            }
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.apps_24px),
+                title = "Другие приложения",
+                text = "Скачивайте другие приложения в каталоге RuStore"
+            ) {
+                ChromeCustomTabUtil.openUrl(
+                    context = context,
+                    url = "https://www.rustore.ru/catalog/developer/90b1826e",
+                )
+
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Ссылка на другие приложения скопирована", "https://www.rustore.ru/catalog/developer/90b1826e")
+                clipboard.setPrimaryClip(clip)
+            }
+
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.github_24),
+                title = "Профиль разработчика",
+                text = "Открыть Github-профиль разработчика"
+            ) {
+                ChromeCustomTabUtil.openUrl(
+                    context = context,
+                    url = "https://github.com/Raf0707",
+                )
+            }
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.info_24px),
+                title = "v1.0.0",
+                text = "Предложите идею или сообщите об ошибке"
+            ) {
+                val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                    data = Uri.parse("mailto:") // Только email-клиенты
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf("raf_android-dev@mail.ru")) // Адрес
+                    putExtra(Intent.EXTRA_SUBJECT, "Обратная связь") // Тема письма
+                    putExtra(Intent.EXTRA_TEXT, "Здравствуйте,\n\n") // Текст по умолчанию
+                }
+
+                try {
+                    context.startActivity(Intent.createChooser(emailIntent, "Выберите почтовый клиент"))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(
+                        context,
+                        "Ошибка: нет доступных почтовых клиентов",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -648,7 +792,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) {
-                    Text("data.message")
+                    Text("Выбрать файл для открытия")
                 }
             }
         }
@@ -815,7 +959,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) {
-                    Text("data.message")
+                    Text("Выбрать файл для открытия")
                 }
             }
         }
