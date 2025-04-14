@@ -12,10 +12,12 @@ import raf.console.pdfreader.VerticalPdfReaderState
 class PdfViewModel : ViewModel() {
     private val mStateFlow = MutableStateFlow<PdfReaderState?>(null)
     val stateFlow: StateFlow<PdfReaderState?> = mStateFlow
+    private var lastResource: ResourceType? = null
 
     val switchState = mutableStateOf(false)
 
     fun openResource(resourceType: ResourceType) {
+        lastResource = resourceType
         mStateFlow.tryEmit(
             if (switchState.value) {
                 HorizontalPdfReaderState(resourceType, true)
@@ -27,5 +29,9 @@ class PdfViewModel : ViewModel() {
 
     fun clearResource() {
         mStateFlow.tryEmit(null)
+    }
+
+    fun restoreLastResource() {
+        lastResource?.let { openResource(it) }
     }
 }

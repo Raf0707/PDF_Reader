@@ -98,40 +98,18 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-
-
-
-        /*intent?.data?.let { uri ->
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }*/
-
-        /*intent?.data?.let { uri ->
-            if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } else {
-                // Обработка случая, когда постоянное разрешение не предоставлено
-                // Можно запросить временный доступ или показать сообщение пользователю
-            }
-        }*/
-
-       // handleIncomingIntent(intent)
-
-        handleIncomingIntent(intent)
+        handleIncomingIntent(intent, isNewIntent = false)
 
         intent?.data?.let { uri ->
             try {
                 // Проверяем, есть ли флаг PERSISTABLE в исходном Intent
                 if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
-                    contentResolver.takePersistableUriPermission(
+                    /*contentResolver.takePersistableUriPermission(
                         uri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
+                    )*/
+                    //openDocumentPicker()
+                    handleIncomingIntent2(intent)
                 } else {
                     // Для временных URI просто запрашиваем временный доступ
                     contentResolver.query(uri, null, null, null, null)?.close()
@@ -143,8 +121,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        //val context = LocalContext.current
-        //context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
         setContent {
             AppTheme {
@@ -154,12 +130,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val state = viewModel.stateFlow.collectAsState()
 
-                    intent?.data?.let { uri ->
+                    /*intent?.data?.let { uri ->
                         contentResolver.takePersistableUriPermission(
                             uri,
                             Intent.FLAG_GRANT_READ_URI_PERMISSION
                         )
-                    }
+                    }*/
+                    //openDocumentPicker()
 
                     Scaffold(
 
@@ -187,111 +164,187 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIncomingIntent(intent)
-        intent?.data?.let { uri ->
-            try {
-                if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
+        handleIncomingIntent(intent, isNewIntent = true)
+    }
+
+    private fun handlePdfUri(uri: Uri, intent: Intent? = null) {
+        try {
+            // 1. Всегда пробуем получить персистентные права
+            if (intent?.flags?.and(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+
+            // 2. Для файлов из WhatsApp/других источников - создаем копию
+            if (!isPersistableUri(uri)) {
+                val tempFile = copyFileToTempStorage(uri) ?: throw IOException("Failed to copy file")
+                viewModel.openResource(ResourceType.Local(Uri.parse(tempFile.absolutePath)))
+            } else {
+                // 3. Для файлов через OPEN_DOCUMENT - работаем напрямую
+                viewModel.openResource(ResourceType.Remote(uri.toString()))
+            }
+
+        } catch (e: SecurityException) {
+            // Если нет прав доступа - предлагаем выбрать файл через OPEN_DOCUMENT
+            openDocumentPicker()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка открытия файла", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun isPersistableUri(uri: Uri): Boolean {
+        return contentResolver.persistedUriPermissions.any { it.uri == uri }
+    }
+
+    private fun handleIncomingIntent2(intent: Intent?) {
+        when (intent?.action) {
+            Intent.ACTION_VIEW -> {
+                intent.data?.let { uri ->
+                    if (isPdfFile(uri)) {
+                        handlePdfUri(uri, intent)
+                    }
                 }
-                // Обновляем данные в ViewModel
-                viewModel.openResource(ResourceType.Remote(uri.toString(), headers = hashMapOf("" to "")))
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error handling new intent", e)
+            }
+            Intent.ACTION_SEND -> {
+                (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.let { uri ->
+                    if (isPdfFile(uri)) {
+                        handlePdfUri(uri, intent)
+                    }
+                }
             }
         }
     }
 
-    /*override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        handleIncomingIntent(intent)
-        // Та же логика обработки URI, что и в onCreate
-    }*/
+    private fun isPdfFile(uri: Uri): Boolean {
+        return contentResolver.getType(uri)?.equals("application/pdf", ignoreCase = true) == true
+    }
 
-    /*override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        intent?.let { handleIncomingIntent(it) }
-    }*/
+    companion object {
+        private const val REQUEST_CODE_OPEN_DOCUMENT = 1001
+    }
 
-    /*private fun handleIncomingIntent(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_VIEW -> {
-                intent.data?.let { uri ->
-                    // Проверяем MIME тип
-                    if (contentResolver.getType(uri) == "application/pdf") {
-                        viewModel.openResource(ResourceType.Local(uri))
-                    }
+    private fun handleIncomingIntent(intent: Intent?, isNewIntent: Boolean) {
+        when {
+            intent?.action == Intent.ACTION_VIEW -> {
+                intent.data?.let { uri -> processPdfUri(uri, intent) }
+            }
+            intent?.action == Intent.ACTION_SEND -> {
+                (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.let { uri ->
+                    processPdfUri(uri, intent)
+                }
+            }
+            isNewIntent -> {
+                // Если это новый Intent, но без данных - возможно нужно обновить UI
+                viewModel.stateFlow.value?.let { currentState ->
+                    viewModel.openResource(currentState.resource)
                 }
             }
         }
-    }*/
+    }
 
+    private fun processPdfUri(uri: Uri, originalIntent: Intent) {
+        try {
+            // 1. Проверяем MIME тип
+            val mimeType = contentResolver.getType(uri) ?: "application/pdf"
+            if (!mimeType.equals("application/pdf", ignoreCase = true)) {
+                Toast.makeText(this, "Файл не является PDF", Toast.LENGTH_SHORT).show()
+                return
+            }
 
-
-    /*private fun handleIncomingIntent(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_VIEW -> {
-                intent.data?.let { uri ->
+            // 2. Пробуем получить доступ к файлу
+            val inputStream = contentResolver.openInputStream(uri)
+            inputStream?.use {
+                // 3. Для файлов с персистентными правами
+                if (originalIntent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
                     try {
-                        // Запрашиваем постоянные разрешения
                         contentResolver.takePersistableUriPermission(
                             uri,
                             Intent.FLAG_GRANT_READ_URI_PERMISSION
                         )
-
-                        // Теперь можно безопасно открывать файл
-                        openPdfFromUri(uri)
+                        viewModel.openResource(ResourceType.Remote(uri.toString()))
                     } catch (e: SecurityException) {
-                        // Обработка ошибки, если разрешения не даны
-                        //showError("Нет доступа к файлу. Пожалуйста, выберите файл снова.")
+                        // Если не получилось - копируем файл
+                        openWithTempCopy(uri)
                     }
+                } else {
+                    // 4. Для файлов без персистентных прав (WhatsApp/Telegram)
+                    openWithTempCopy(uri)
+                }
+            } ?: run {
+                Toast.makeText(this, "Не удалось открыть файл", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Ошибка обработки PDF", e)
+            Toast.makeText(this, "Ошибка при открытии файла", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openWithTempCopy(uri: Uri) {
+        try {
+            val tempFile = createTempPdfCopy(uri) ?: throw IOException("Не удалось создать копию файла")
+            viewModel.openResource(ResourceType.Local(Uri.fromFile(tempFile)))
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Ошибка копирования файла", e)
+            Toast.makeText(this, "Ошибка при обработке файла", Toast.LENGTH_SHORT).show()
+            openDocumentPicker() // Предлагаем выбрать файл через системный пикер
+        }
+    }
+
+    private fun createTempPdfCopy(uri: Uri): File? {
+        return try {
+            val tempFile = File(cacheDir, "temp_pdf_${System.currentTimeMillis()}.pdf").apply {
+                createNewFile()
+            }
+
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
                 }
             }
+
+            tempFile
+        } catch (e: Exception) {
+            null
         }
-    }*/
+    }
 
     private fun handleIncomingIntent(intent: Intent?) {
         intent?.data?.let { uri ->
             try {
-                // 1. Попробуем определить реальный MIME-тип
                 val mimeType = contentResolver.getType(uri) ?: "application/pdf"
-
-                // 2. Если это не PDF - выходим
                 if (!mimeType.equals("application/pdf", ignoreCase = true)) {
                     Toast.makeText(this, "Файл не является PDF", Toast.LENGTH_SHORT).show()
                     return
                 }
 
-                // 3. Пробуем получить доступ к файлу (даже без persistable прав)
+                // Проверяем доступ
                 val inputStream = contentResolver.openInputStream(uri)
                 inputStream?.use { stream ->
-                    // 4. Если дошли сюда - доступ есть, можно работать с файлом
                     viewModel.openResource(ResourceType.Remote(uri.toString()))
 
-                    // 5. Пробуем получить постоянные права (если доступны)
-                    try {
-                        if (intent?.flags?.and(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                    // Безопасный вызов takePersistableUriPermission
+                    if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+                        try {
                             contentResolver.takePersistableUriPermission(
                                 uri,
                                 Intent.FLAG_GRANT_READ_URI_PERMISSION
                             )
-                        } else {
-
+                        } catch (e: SecurityException) {
+                            Log.w("MainActivity", "No persistable grant for: $uri", e)
                         }
-                    } catch (e: SecurityException) {
-                        Log.w("MainActivity", "Cannot get persistable permissions for $uri")
                     }
                 } ?: run {
                     Toast.makeText(this, "Не удалось открыть файл", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("MainActivity", "Error handling URI", e)
+                Log.e("MainActivity", "Ошибка при обработке URI", e)
                 Toast.makeText(this, "Ошибка при открытии файла", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
 
     private fun handleWhatsAppUri(uri: Uri) {
         try {
