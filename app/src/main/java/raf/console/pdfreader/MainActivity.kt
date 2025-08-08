@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -58,7 +60,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -73,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ShareCompat
 import androidx.core.content.FileProvider
 import raf.console.archnotes.utils.ChromeCustomTabUtil
+import raf.console.pdfreader.ui.about.AppAboutActivity
 import raf.console.pdfreader.ui.theme.AppTheme
 import raf.console.pdfreader.util.AppPreferences
 import raf.console.pdfreader.viewmodel.PdfViewModel
@@ -80,11 +85,22 @@ import raf.console.pdfreader.viewmodel.PdfViewModelFactory
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.max
 
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var preferences: AppPreferences
+    private var backPressedTime = 0L
     private val viewModel: PdfViewModel by viewModels {
         PdfViewModelFactory(AppPreferences(this), this)
     }
@@ -99,11 +115,50 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         )
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        // Запретить выход из приложения
+        /*onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 viewModel.clearResource()
             }
+        })*/
+
+        /*onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val currentState = viewModel.stateFlow.value
+
+                if (currentState != null) {
+                    // Если открыт PDF — просто закрываем его
+                    viewModel.clearResource()
+                } else {
+                    // Если уже на главном экране — проверяем двойное нажатие
+                    if (backPressedTime + 2000 > System.currentTimeMillis()) {
+                        finish() // Закрыть приложение
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Нажмите ещё раз для выхода",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        backPressedTime = System.currentTimeMillis()
+                    }
+                }
+            }
+        })*/
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val currentState = viewModel.stateFlow.value
+
+                if (currentState != null) {
+                    // Если открыт PDF — закрываем его
+                    viewModel.clearResource()
+                } else {
+                    // Если на главном экране — выходим из приложения
+                    finish()
+                }
+            }
         })
+
 
         handleIncomingIntent(intent, isNewIntent = false)
 
@@ -530,6 +585,38 @@ class MainActivity : ComponentActivity() {
             HorizontalDivider(Modifier.height(8.dp))
 
             SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.info_24px),
+                title = "О приложении",
+                text = "Информация о приложении, лицензии и разработчике"
+            ) {
+                context.startActivity(Intent(context, AppAboutActivity::class.java))
+            }
+
+
+
+            SelectionElement(
+                icon = painterResource(id = raf.console.pdfreader.R.drawable.shareapp),
+                title = "Поделиться приложением",
+                text = "Поделитесь приложением «PDF Reader без рекламы» с друзьями и знакомыми"
+            ) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Скачайте приложение «PDF Reader без рекламы» в каталоге RuStore", "https://www.rustore.ru/catalog/app/raf.console.pdfreader")
+                clipboard.setPrimaryClip(clip)
+
+                // Создаем Intent для диалога "Поделиться"
+                val shareIntent = Intent(Intent.ACTION_SEND)
+                shareIntent.type = "text/plain"
+                shareIntent.putExtra(Intent.EXTRA_TEXT, "Скачайте приложение «PDF Reader без рекламы» в каталоге RuStore \n\n https://www.rustore.ru/catalog/app/raf.console.pdfreader")
+
+                // Запускаем диалог "Поделиться"
+                context.startActivity(Intent.createChooser(shareIntent, "Поделиться приложением"))
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(Modifier.height(8.dp))
+
+
+            /*SelectionElement(
                 icon = painterResource(id = raf.console.pdfreader.R.drawable.code_24px),
                 title = "Исходный код",
                 text = "Открыть исходный код приложения"
@@ -651,7 +738,7 @@ class MainActivity : ComponentActivity() {
 
                 // Запускаем диалог "Поделиться"
                 context.startActivity(Intent.createChooser(shareIntent, "Поделиться приложением"))
-            }
+            }*/
         }
     }
 
@@ -662,20 +749,48 @@ class MainActivity : ComponentActivity() {
         onOpenDocument: () -> Unit,
         viewModel: PdfViewModel
     ) {
-        var showDialog by remember { mutableStateOf(false) }
+        var showGotoDialog by remember { mutableStateOf(false) }
         var pageInput by remember { mutableStateOf("") }
         val coroutineScope = rememberCoroutineScope()
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
+        // === Zoom ===
+        var scale by remember { mutableStateOf(1f) }
+        val minScale = 0.5f
+        val maxScale = 4f
+        val step = 0.25f
+        fun formatScale(s: Float) =
+            s.toInt().let { i -> if (kotlin.math.abs(s - i) < 0.001f) "${i}x" else String.format("%.1fx", s) }
+
+        // === Панорамирование по X/Y ===
+        var offsetX by remember { mutableStateOf(0f) }
+        var offsetY by remember { mutableStateOf(0f) }
+
+        // === Диалог сброса масштаба ===
+        var showResetZoomDialog by remember { mutableStateOf(false) }
+
+        // === Геометрия для клампа ===
+        var containerW by remember { mutableStateOf(0f) }
+        var containerH by remember { mutableStateOf(0f) }
+        var contentW by remember { mutableStateOf(0f) }
+        var contentH by remember { mutableStateOf(0f) }
+
+        fun clampX(x: Float): Float {
+            val overflow = (contentW * scale - containerW) / 2f
+            val maxOff = max(0f, overflow)
+            return x.coerceIn(-maxOff, +maxOff)
+        }
+        fun clampY(y: Float): Float {
+            val overflow = (contentH * scale - containerH) / 2f
+            val maxOff = max(0f, overflow)
+            return y.coerceIn(-maxOff, +maxOff)
+        }
+
         LaunchedEffect(pdfState.error) {
-            if (pdfState.pdfPageCount > 0) {
-                viewModel.saveCurrentPage(pdfState.currentPage)
-            }
+            if (pdfState.pdfPageCount > 0) viewModel.saveCurrentPage(pdfState.currentPage)
             pdfState.error?.let {
-                if (pdfState.pdfPageCount > 0) {
-                    viewModel.saveCurrentPage(pdfState.currentPage)
-                }
+                if (pdfState.pdfPageCount > 0) viewModel.saveCurrentPage(pdfState.currentPage)
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -687,84 +802,150 @@ class MainActivity : ComponentActivity() {
 
         Box(
             contentAlignment = Alignment.TopStart,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coords ->
+                    containerW = coords.size.width.toFloat()
+                    containerH = coords.size.height.toFloat()
+                }
         ) {
             if (pdfState.pdfPageCount == 0) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    LinearProgressIndicator(
-                        color = Color.Red,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    LinearProgressIndicator(color = Color.Red, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(16.dp))
                 }
             }
 
-            // Основное содержимое PDF с отступами
+            // ==== Контент с масштабом и 2D-панорамой ====
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 56.dp, bottom = 72.dp) // Отступы сверху и снизу
+                    .padding(top = 56.dp, bottom = 72.dp)
             ) {
-                VerticalPDFReader(
-                    state = pdfState,
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .onGloballyPositioned { coords ->
+                            contentW = coords.size.width.toFloat()
+                            contentH = coords.size.height.toFloat()
+                            offsetX = clampX(offsetX)
+                            offsetY = clampY(offsetY)
+                        }
+                        // ОДИН обработчик, пани по X и Y, только если есть зум
+                        .pointerInput(scale, contentW, contentH, containerW, containerH) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var dragging = false
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pan = event.calculatePan()
+                                    if (scale > 1f) {
+                                        dragging = true
+                                        offsetX = clampX(offsetX + pan.x)
+                                        offsetY = clampY(offsetY + pan.y)
+                                        // забираем событие, чтобы не скроллился список
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                if (!dragging) {
+                                    // если не пани, ничего не поглощали — вертикальный скролл работает как обычно
+                                }
+                            }
+                        }
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = offsetX
+                            translationY = offsetY
+                        }
                         .background(Color.White)
-                )
+                ) {
+                    VerticalPDFReader(
+                        state = pdfState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
-            // Верхняя панель с информацией о странице
-            Column(
+            // ==== Верхняя панель ====
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp)
+                    .padding(top = 8.dp, start = 16.dp, end = 16.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                            shape = MaterialTheme.shapes.medium
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                                shape = MaterialTheme.shapes.medium
-                            )
+                    // ЛЕВО
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
+                        Text(
+                            text = if (pdfState.pdfPageCount > 0)
+                                "Страница: ${pdfState.currentPage}/${pdfState.pdfPageCount}"
+                            else "Загрузка...",
+                            modifier = Modifier.clickable(enabled = pdfState.pdfPageCount > 0) {
+                                if (pdfState.pdfPageCount > 0) showGotoDialog = true
+                            },
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (pdfState.pdfPageCount > 0) {
+                            Spacer(Modifier.width(12.dp))
+                            IconButton(onClick = { pdfState.file?.let { sharePdfFile(context, it) } }) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Поделиться",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    // ПРАВО (– [1.0x] +)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (pdfState.pdfPageCount > 0) {
+                            IconButton(onClick = {
+                                scale = (scale - step).coerceIn(minScale, maxScale)
+                                offsetX = clampX(offsetX); offsetY = clampY(offsetY)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = "Уменьшить",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                             Text(
-                                text = if (pdfState.pdfPageCount > 0)
-                                    "Страница: ${pdfState.currentPage}/${pdfState.pdfPageCount}"
-                                else "Загрузка...",
-                                modifier = Modifier.clickable {
-                                    if (pdfState.pdfPageCount > 0) showDialog = true
-                                }
+                                text = formatScale(scale),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp)
+                                    .clickable { showResetZoomDialog = true }
                             )
-                            if (pdfState.pdfPageCount > 0) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = {
-                                        pdfState.file?.let { file ->
-                                            sharePdfFile(context, file)
-                                        }
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "Поделиться",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                            IconButton(onClick = {
+                                scale = (scale + step).coerceIn(minScale, maxScale)
+                                offsetX = clampX(offsetX); offsetY = clampY(offsetY)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Увеличить",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // Слайдер внизу экрана
+            // ==== Слайдер ====
             if (pdfState.pdfPageCount > 0) {
                 Box(
                     modifier = Modifier
@@ -774,9 +955,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Slider(
                         value = pdfState.currentPage.toFloat(),
-                        onValueChange = { newValue ->
-                            pdfState.jumpTo(newValue.toInt(), coroutineScope)
-                        },
+                        onValueChange = { v -> pdfState.jumpTo(v.toInt(), coroutineScope) },
                         valueRange = 0f..(pdfState.pdfPageCount).toFloat(),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -785,19 +964,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (showDialog) {
+            // ==== Диалог: перейти на страницу ====
+            if (showGotoDialog) {
                 AlertDialog(
-                    onDismissRequest = { showDialog = false },
+                    onDismissRequest = { showGotoDialog = false },
                     title = { Text("Перейти на страницу") },
                     text = {
                         Column {
                             OutlinedTextField(
                                 value = pageInput,
-                                onValueChange = { pageInput = it.filter { ch -> ch.isDigit() } },
+                                onValueChange = { pageInput = it.filter(Char::isDigit) },
                                 label = { Text("Номер страницы (1-${pdfState.pdfPageCount})") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                             )
-
                             val page = pageInput.toIntOrNull()
                             when {
                                 page == null && pageInput.isNotEmpty() ->
@@ -814,21 +993,34 @@ class MainActivity : ComponentActivity() {
                             enabled = pageInput.toIntOrNull()?.let { it in 1..pdfState.pdfPageCount } ?: false,
                             onClick = {
                                 pdfState.jumpTo(pageInput.toInt() - 1, coroutineScope)
-                                showDialog = false
+                                showGotoDialog = false
                             }
-                        ) {
-                            Text("Перейти")
-                        }
+                        ) { Text("Перейти") }
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showDialog = false }) {
-                            Text("Отмена")
-                        }
-                    }
+                    dismissButton = { TextButton(onClick = { showGotoDialog = false }) { Text("Отмена") } }
+                )
+            }
+
+            // ==== Диалог: сбросить масштаб ====
+            if (showResetZoomDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetZoomDialog = false },
+                    title = { Text("Сбросить масштаб?") },
+                    text = { Text("Масштаб будет установлен на 1x.") },
+                    confirmButton = {
+                        Button(onClick = {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                            showResetZoomDialog = false
+                        }) { Text("Сбросить") }
+                    },
+                    dismissButton = { TextButton(onClick = { showResetZoomDialog = false }) { Text("Отмена") } }
                 )
             }
         }
 
+        // Snackbar
         Box(modifier = Modifier.fillMaxSize()) {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -836,16 +1028,9 @@ class MainActivity : ComponentActivity() {
             ) { data ->
                 Snackbar(
                     action = {
-                        TextButton(onClick = {
-                            data.performAction()
-                            onOpenDocument()
-                        }) {
-                            Text("Выбрать")
-                        }
+                        TextButton(onClick = { data.performAction(); onOpenDocument() }) { Text("Выбрать") }
                     }
-                ) {
-                    Text("Выбрать файл для открытия")
-                }
+                ) { Text("Выбрать файл для открытия") }
             }
         }
     }
@@ -859,20 +1044,48 @@ class MainActivity : ComponentActivity() {
         onOpenDocument: () -> Unit,
         viewModel: PdfViewModel
     ) {
-        var showDialog by remember { mutableStateOf(false) }
+        var showGotoDialog by remember { mutableStateOf(false) }
         var pageInput by remember { mutableStateOf("") }
         val coroutineScope = rememberCoroutineScope()
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
+        // === Zoom ===
+        var scale by remember { mutableStateOf(1f) }
+        val minScale = 0.5f
+        val maxScale = 4f
+        val step = 0.25f
+        fun formatScale(s: Float) =
+            s.toInt().let { i -> if (kotlin.math.abs(s - i) < 0.001f) "${i}x" else String.format("%.1fx", s) }
+
+        // === Панорамирование по X/Y ===
+        var offsetX by remember { mutableStateOf(0f) }
+        var offsetY by remember { mutableStateOf(0f) }
+
+        // === Диалог сброса масштаба ===
+        var showResetZoomDialog by remember { mutableStateOf(false) }
+
+        // === Геометрия для клампа ===
+        var containerW by remember { mutableStateOf(0f) }
+        var containerH by remember { mutableStateOf(0f) }
+        var contentW by remember { mutableStateOf(0f) }
+        var contentH by remember { mutableStateOf(0f) }
+
+        fun clampX(x: Float): Float {
+            val overflow = (contentW * scale - containerW) / 2f
+            val maxOff = max(0f, overflow)
+            return x.coerceIn(-maxOff, +maxOff)
+        }
+        fun clampY(y: Float): Float {
+            val overflow = (contentH * scale - containerH) / 2f
+            val maxOff = max(0f, overflow)
+            return y.coerceIn(-maxOff, +maxOff)
+        }
+
         LaunchedEffect(pdfState.error) {
-            if (pdfState.pdfPageCount > 0) {
-                viewModel.saveCurrentPage(pdfState.currentPage)
-            }
+            if (pdfState.pdfPageCount > 0) viewModel.saveCurrentPage(pdfState.currentPage)
             pdfState.error?.let {
-                if (pdfState.pdfPageCount > 0) {
-                    viewModel.saveCurrentPage(pdfState.currentPage)
-                }
+                if (pdfState.pdfPageCount > 0) viewModel.saveCurrentPage(pdfState.currentPage)
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -883,84 +1096,145 @@ class MainActivity : ComponentActivity() {
         }
 
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coords ->
+                    containerW = coords.size.width.toFloat()
+                    containerH = coords.size.height.toFloat()
+                }
         ) {
             if (pdfState.pdfPageCount == 0) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    LinearProgressIndicator(
-                        color = Color.Red,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    LinearProgressIndicator(color = Color.Red, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(16.dp))
                 }
             }
 
-            // Основное содержимое PDF с отступами
+            // ==== Контент с масштабом и 2D-панорамой ====
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = 56.dp, bottom = 72.dp)
             ) {
-                HorizontalPDFReader(
-                    state = pdfState,
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .onGloballyPositioned { coords ->
+                            contentW = coords.size.width.toFloat()
+                            contentH = coords.size.height.toFloat()
+                            offsetX = clampX(offsetX)
+                            offsetY = clampY(offsetY)
+                        }
+                        .pointerInput(scale, contentW, contentH, containerW, containerH) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var dragging = false
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pan = event.calculatePan()
+                                    if (scale > 1f) {
+                                        dragging = true
+                                        offsetX = clampX(offsetX + pan.x)
+                                        offsetY = clampY(offsetY + pan.y)
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        }
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = offsetX
+                            translationY = offsetY
+                        }
                         .background(Color.White)
-                )
+                ) {
+                    HorizontalPDFReader(
+                        state = pdfState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
-            // Верхняя панель с информацией о странице
-            Column(
+            // ==== Верхняя панель ====
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp)
+                    .padding(top = 8.dp, start = 16.dp, end = 16.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                            shape = MaterialTheme.shapes.medium
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                                shape = MaterialTheme.shapes.medium
-                            )
+                    // ЛЕВО
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
+                        Text(
+                            text = if (pdfState.pdfPageCount > 0)
+                                "Страница: ${pdfState.currentPage + 1}/${pdfState.pdfPageCount}"
+                            else "Загрузка...",
+                            modifier = Modifier.clickable(enabled = pdfState.pdfPageCount > 0) {
+                                if (pdfState.pdfPageCount > 0) showGotoDialog = true
+                            },
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (pdfState.pdfPageCount > 0) {
+                            Spacer(Modifier.width(12.dp))
+                            IconButton(onClick = { pdfState.file?.let { sharePdfFile(context, it) } }) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Поделиться",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    // ПРАВО
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (pdfState.pdfPageCount > 0) {
+                            IconButton(onClick = {
+                                scale = (scale - step).coerceIn(minScale, maxScale)
+                                offsetX = clampX(offsetX); offsetY = clampY(offsetY)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = "Уменьшить",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                             Text(
-                                text = if (pdfState.pdfPageCount > 0)
-                                    "Страница: ${pdfState.currentPage + 1}/${pdfState.pdfPageCount}"
-                                else "Загрузка...",
-                                modifier = Modifier.clickable {
-                                    if (pdfState.pdfPageCount > 0) showDialog = true
-                                }
+                                text = formatScale(scale),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp)
+                                    .clickable { showResetZoomDialog = true }
                             )
-                            if (pdfState.pdfPageCount > 0) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = {
-                                        pdfState.file?.let { file ->
-                                            sharePdfFile(context, file)
-                                        }
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "Поделиться",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                            IconButton(onClick = {
+                                scale = (scale + step).coerceIn(minScale, maxScale)
+                                offsetX = clampX(offsetX); offsetY = clampY(offsetY)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Увеличить",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // Слайдер внизу экрана
+            // ==== Слайдер ====
             if (pdfState.pdfPageCount > 1) {
                 Box(
                     modifier = Modifier
@@ -970,9 +1244,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Slider(
                         value = pdfState.currentPage.toFloat(),
-                        onValueChange = { newPage ->
-                            pdfState.jumpTo(newPage.toInt(), coroutineScope)
-                        },
+                        onValueChange = { v -> pdfState.jumpTo(v.toInt(), coroutineScope) },
                         valueRange = 0f..(pdfState.pdfPageCount - 1).toFloat(),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -981,28 +1253,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (showDialog) {
+            // ==== Диалог: перейти на страницу ====
+            if (showGotoDialog) {
                 AlertDialog(
-                    onDismissRequest = { showDialog = false },
+                    onDismissRequest = { showGotoDialog = false },
                     title = { Text("Перейти на страницу") },
                     text = {
                         Column {
                             OutlinedTextField(
                                 value = pageInput,
-                                onValueChange = { newValue ->
-                                    pageInput = newValue.filter { it.isDigit() }
-                                },
+                                onValueChange = { pageInput = it.filter(Char::isDigit) },
                                 label = { Text("Номер страницы (1-${pdfState.pdfPageCount})") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                             )
-
                             if (pageInput.isNotEmpty()) {
                                 val page = pageInput.toIntOrNull()
                                 when {
                                     page == null -> Text("Введите число", color = MaterialTheme.colorScheme.error)
                                     page < 1 -> Text("Страница не может быть меньше 1", color = MaterialTheme.colorScheme.error)
-                                    page > pdfState.pdfPageCount -> Text("Максимальная страница: ${pdfState.pdfPageCount}",
-                                        color = MaterialTheme.colorScheme.error)
+                                    page > pdfState.pdfPageCount ->
+                                        Text("Максимальная страница: ${pdfState.pdfPageCount}", color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -1012,22 +1282,34 @@ class MainActivity : ComponentActivity() {
                             enabled = pageInput.toIntOrNull()?.let { it in 1..pdfState.pdfPageCount } ?: false,
                             onClick = {
                                 pdfState.jumpTo(pageInput.toInt() - 1, coroutineScope)
-                                showDialog = false
+                                showGotoDialog = false
                             }
-                        ) {
-                            Text("Перейти")
-                        }
+                        ) { Text("Перейти") }
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showDialog = false }) {
-                            Text("Отмена")
-                        }
-                    }
+                    dismissButton = { TextButton(onClick = { showGotoDialog = false }) { Text("Отмена") } }
+                )
+            }
+
+            // ==== Диалог: сбросить масштаб ====
+            if (showResetZoomDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetZoomDialog = false },
+                    title = { Text("Сбросить масштаб?") },
+                    text = { Text("Масштаб будет установлен на 1x.") },
+                    confirmButton = {
+                        Button(onClick = {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                            showResetZoomDialog = false
+                        }) { Text("Сбросить") }
+                    },
+                    dismissButton = { TextButton(onClick = { showResetZoomDialog = false }) { Text("Отмена") } }
                 )
             }
         }
 
-        // Snackbar для отображения ошибок
+        // Snackbar
         Box(modifier = Modifier.fillMaxSize()) {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -1035,21 +1317,14 @@ class MainActivity : ComponentActivity() {
             ) { data ->
                 Snackbar(
                     action = {
-                        TextButton(
-                            onClick = {
-                                data.performAction()
-                                onOpenDocument()
-                            }
-                        ) {
-                            Text("Выбрать")
-                        }
+                        TextButton(onClick = { data.performAction(); onOpenDocument() }) { Text("Выбрать") }
                     }
-                ) {
-                    Text("Выбрать файл для открытия")
-                }
+                ) { Text("Выбрать файл для открытия") }
             }
         }
     }
+
+
 
 
     private fun isPointInInteractiveArea(

@@ -47,7 +47,7 @@ fun ZoomableImage(
         modifier = Modifier
             .clip(shape)
             .background(backgroundColor)
-            .combinedClickable(
+            /*.combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = { /* NADA :) */ },
@@ -58,8 +58,8 @@ fun ZoomableImage(
                         offsetY.value = 1f
                     } else scale.value = 3f
                 },
-            )
-            .pointerInput(Unit) {
+            )*/
+            /*.pointerInput(Unit) {
                 if (isZoomable) {
                     forEachGesture {
                         awaitPointerEventScope {
@@ -91,7 +91,39 @@ fun ZoomableImage(
                         }
                     }
                 }
+            }*/
+
+            //.clip(shape)
+            //.background(backgroundColor)
+            .pointerInput(Unit) {
+                if (isZoomable) {
+                    forEachGesture {
+                        awaitPointerEventScope {
+                            awaitFirstDown()
+                            do {
+                                val event = awaitPointerEvent()
+                                val zoomChange = event.calculateZoom()
+                                val newScale = (scale.value * zoomChange).coerceIn(minScale, maxScale)
+
+                                val pan = event.calculatePan()
+                                val rotationChange = event.calculateRotation()
+
+                                scale.value = newScale
+                                if (newScale > minScale) {
+                                    offsetX.value += pan.x
+                                    offsetY.value += pan.y
+                                }
+
+                                if (isRotation) {
+                                    rotationState.value += rotationChange
+                                }
+
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+                }
             }
+
 
     ) {
         Image(

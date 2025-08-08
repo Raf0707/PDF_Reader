@@ -14,11 +14,12 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.R
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -120,18 +122,6 @@ class MainScreen : ComponentActivity() {
         }
     }
 
-    /*@Composable
-    fun TopAppBar() {
-        TopAppBar(
-            contentPadding = PaddingValues(horizontal = 16.dp)
-        ) {
-            Text(
-                text = stringResource(id = R.string.app_name),
-                style = MaterialTheme.typography.h6
-            )
-        }
-    }*/
-
     //@OptIn(ExperimentalMaterialApi::class)
     @Composable
     fun SelectionElement(
@@ -176,43 +166,12 @@ class MainScreen : ComponentActivity() {
     @Composable
     fun SelectionView() {
         Column(modifier = Modifier.fillMaxSize()) {
-            /*SelectionElement(
-                title = "Open Base64",
-                text = "Try to open a base64 pdf"
-            ) {
-                viewModel.openResource(
-                    ResourceType.Base64(
-                        this@MainActivity.getString(R.string.base64_pdf)
-                    )
-                )
-            }
-            SelectionElement(
-                title = "Open Remote file",
-                text = "Open a remote file from url"
-            ) {
-                viewModel.openResource(
-                    ResourceType.Remote(
-                        url = this@MainActivity.getString(
-                            R.string.pdf_url
-                        ),
-                        headers = hashMapOf("headerKey" to "headerValue")
-                    )
-                )
-            }*/
             SelectionElement(
                 title = "Open Local file",
                 text = "Open a file in device memory"
             ) {
                 openDocumentPicker()
             }
-            /*SelectionElement(
-                title = "Open asset file",
-                text = "Open asset file in raw folder"
-            ) {
-                viewModel.openResource(
-                    ResourceType.Asset(R.raw.lorem_ipsum)
-                )
-            }*/
             Row(
                 modifier = Modifier
                     .padding(16.dp),
@@ -225,11 +184,6 @@ class MainScreen : ComponentActivity() {
                     onCheckedChange = {
                         viewModel.switchState = it
                     }
-                    /*colors = SwitchDefaults.colors(
-                        uncheckedThumbColor = MaterialTheme.colors.secondaryVariant,
-                        uncheckedTrackColor = MaterialTheme.colors.secondaryVariant,
-                        uncheckedTrackAlpha = 0.54f
-                    )*/
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(text = "Pager view")
@@ -249,9 +203,20 @@ class MainScreen : ComponentActivity() {
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
+        // === Zoom state (toolbar) ===
+        var scale by remember { mutableStateOf(1f) }      // NEW
+        val minScale = 0.5f                               // NEW
+        val maxScale = 4f                                 // NEW
+        val step = 0.25f                                  // NEW
+        fun formatScale(s: Float): String {               // NEW
+            val intPart = s.toInt()
+            return if (kotlin.math.abs(s - intPart) < 0.001f) "${intPart}x"
+            else String.format("%.1fx", s)
+        }
+
         // Обработка ошибок
         LaunchedEffect(pdfState.error) {
-            pdfState.error?.let { error ->
+            pdfState.error?.let { _ ->
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -277,6 +242,10 @@ class MainScreen : ComponentActivity() {
                 state = pdfState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {        // NEW: применяем масштаб
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .background(color = Color.White)
             )
 
@@ -327,6 +296,35 @@ class MainScreen : ComponentActivity() {
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
+
+                                // --- Zoom controls (– 1.0x +) ---  // NEW
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { scale = (scale - step).coerceIn(minScale, maxScale) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Remove,
+                                        contentDescription = "Уменьшить",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Text(
+                                    text = formatScale(scale),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                )
+                                IconButton(
+                                    onClick = { scale = (scale + step).coerceIn(minScale, maxScale) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Увеличить",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                // --- end zoom controls ---
                             }
                         }
                     }
@@ -352,12 +350,8 @@ class MainScreen : ComponentActivity() {
                             onClick = {
                                 val page = pageInput.toIntOrNull() ?: return@Button
                                 when {
-                                    page < 1 -> {
-                                        // Показываем ошибку, если страница меньше 1
-                                    }
-                                    page > pdfState.pdfPageCount -> {
-                                        // Показываем ошибку, если страница больше максимума
-                                    }
+                                    page < 1 -> { /* ignore or show error */ }
+                                    page > pdfState.pdfPageCount -> { /* ignore or show error */ }
                                     else -> {
                                         pdfState.jumpTo(page - 1, coroutineScope)
                                         showDialog = false
@@ -413,9 +407,20 @@ class MainScreen : ComponentActivity() {
         val context = LocalContext.current
         val snackbarHostState = remember { SnackbarHostState() }
 
+        // === Zoom state (toolbar) ===
+        var scale by remember { mutableStateOf(1f) }      // NEW
+        val minScale = 0.5f                               // NEW
+        val maxScale = 4f                                 // NEW
+        val step = 0.25f                                  // NEW
+        fun formatScale(s: Float): String {               // NEW
+            val intPart = s.toInt()
+            return if (kotlin.math.abs(s - intPart) < 0.001f) "${intPart}x"
+            else String.format("%.1fx", s)
+        }
+
         // Обработка ошибок
         LaunchedEffect(pdfState.error) {
-            pdfState.error?.let { error ->
+            pdfState.error?.let { _ ->
                 snackbarHostState.showSnackbar(
                     message = "Файл поврежден, выберите другой файл",
                     actionLabel = "Выбрать",
@@ -441,6 +446,10 @@ class MainScreen : ComponentActivity() {
                 state = pdfState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {        // NEW: применяем масштаб
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .background(color = Color.White)
             )
 
@@ -492,6 +501,34 @@ class MainScreen : ComponentActivity() {
                                     )
                                 }
                             }
+                            // --- Zoom controls (– 1.0x +) ---  // NEW
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { scale = (scale - step).coerceIn(minScale, maxScale) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = "Уменьшить",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Text(
+                                text = formatScale(scale),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            )
+                            IconButton(
+                                onClick = { scale = (scale + step).coerceIn(minScale, maxScale) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Увеличить",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            // --- end zoom controls ---
                         }
                     }
                 }

@@ -15,8 +15,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.jetpack.composepdfviewer.PdfViewer
+import raf.console.pdfreader.R
 import raf.console.pdfreader.ui.theme.AppTheme
+import raf.console.pdfreader.helper.PdfViewer
+
 
 class PdfActivity : ComponentActivity() {
     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
@@ -47,7 +49,7 @@ fun ComposePDFViewer() {
     Box {
         PdfViewer(
             modifier = Modifier.fillMaxSize(),
-            pdfResId = null,//R.raw.samplepdf,
+            pdfResId = 0,
             loadingListener = { loading, currentPage, maxPage ->
                 isLoading = loading
                 if (currentPage != null) currentLoadingPage = currentPage

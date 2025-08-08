@@ -29,36 +29,23 @@ fun ZoomableImage(
     backgroundColor: Color = Color.Transparent,
     imageAlign: Alignment = Alignment.Center,
     shape: Shape = RectangleShape,
-    maxScale: Float = 1f,
-    minScale: Float = 3f,
+    minScale: Float = 1f,
+    maxScale: Float = 3f,
     contentScale: ContentScale = ContentScale.Fit,
     isRotation: Boolean = false,
     isZoomable: Boolean = true,
     scrollState: ScrollableState? = null
 ) {
-    val coroutineScope = rememberCoroutineScope()
-
     val scale = remember { mutableStateOf(1f) }
-    val rotationState = remember { mutableStateOf(1f) }
-    val offsetX = remember { mutableStateOf(1f) }
-    val offsetY = remember { mutableStateOf(1f) }
+    val rotationState = remember { mutableStateOf(0f) }
+    val offsetX = remember { mutableStateOf(0f) }
+    val offsetY = remember { mutableStateOf(0f) }
+    val coroutineScope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier
             .clip(shape)
             .background(backgroundColor)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = { /* NADA :) */ },
-                onDoubleClick = {
-                    if (scale.value >= 2f) {
-                        scale.value = 1f
-                        offsetX.value = 1f
-                        offsetY.value = 1f
-                    } else scale.value = 3f
-                },
-            )
             .pointerInput(Unit) {
                 if (isZoomable) {
                     forEachGesture {
@@ -66,33 +53,46 @@ fun ZoomableImage(
                             awaitFirstDown()
                             do {
                                 val event = awaitPointerEvent()
-                                scale.value *= event.calculateZoom()
-                                if (scale.value > 1) {
-                                    scrollState?.run {
-                                        coroutineScope.launch {
-                                            setScrolling(false)
-                                        }
+
+                                val zoomChange = event.calculateZoom()
+                                val newScale = (scale.value * zoomChange)
+                                    .coerceIn(minScale, maxScale)
+
+                                if (newScale > minScale) {
+                                    // Блокируем прокрутку списка
+                                    scrollState?.let {
+                                        coroutineScope.launch { it.setScrolling(false) }
                                     }
-                                    val offset = event.calculatePan()
-                                    offsetX.value += offset.x
-                                    offsetY.value += offset.y
-                                    rotationState.value += event.calculateRotation()
-                                    scrollState?.run {
-                                        coroutineScope.launch {
-                                            setScrolling(true)
-                                        }
-                                    }
-                                } else {
-                                    scale.value = 1f
-                                    offsetX.value = 1f
-                                    offsetY.value = 1f
                                 }
+
+                                val pan = event.calculatePan()
+                                val rotationChange = event.calculateRotation()
+
+                                scale.value = newScale
+                                if (newScale > minScale) {
+                                    offsetX.value += pan.x
+                                    offsetY.value += pan.y
+                                } else {
+                                    offsetX.value = 0f
+                                    offsetY.value = 0f
+                                }
+
+                                if (isRotation) {
+                                    rotationState.value += rotationChange
+                                }
+
+                                if (newScale <= minScale) {
+                                    // Возвращаем прокрутку
+                                    scrollState?.let {
+                                        coroutineScope.launch { it.setScrolling(true) }
+                                    }
+                                }
+
                             } while (event.changes.any { it.pressed })
                         }
                     }
                 }
             }
-
     ) {
         Image(
             painter = painter,
@@ -101,26 +101,20 @@ fun ZoomableImage(
             modifier = modifier
                 .align(imageAlign)
                 .graphicsLayer {
-                    if (isZoomable) {
-                        scaleX = maxOf(maxScale, minOf(minScale, scale.value))
-                        scaleY = maxOf(maxScale, minOf(minScale, scale.value))
-                        if (isRotation) {
-                            rotationZ = rotationState.value
-                        }
-                        translationX = offsetX.value
-                        translationY = offsetY.value
-                    }
+                    scaleX = scale.value
+                    scaleY = scale.value
+                    if (isRotation) rotationZ = rotationState.value
+                    translationX = offsetX.value
+                    translationY = offsetY.value
                 }
         )
     }
 }
 
-suspend fun ScrollableState.setScrolling(value: Boolean) {
+suspend fun ScrollableState.setScrolling(enabled: Boolean) {
     scroll(scrollPriority = MutatePriority.PreventUserInput) {
-        when (value) {
-            true -> Unit
-            else -> awaitCancellation()
+        if (!enabled) {
+            awaitCancellation()
         }
     }
 }
-
