@@ -1,5 +1,5 @@
-## ⚠ This is the official repository of the "PDF Reader без рекламы" application. The sole author and owner is Rafail Kikmatulin. This application is published exclusively by me in RuStore.
-## ⚠ Это официальное хринилище приложения "PDF Reader без рекламы". Единственным автором и владельцем является Рафаил Кикматулин. Данное приложение публикуется исключительно мной в RuStore.
+## ⚠ This is the official repository of the "PDF Reader" application. The sole author and owner is Rafail Kikmatulin. This application is published exclusively by me in RuStore.
+## ⚠ Это официальное хринилище приложения "PDF Reader". Единственным автором и владельцем является Рафаил Кикматулин. Данное приложение публикуется исключительно мной в RuStore.
 
 ## Проект создан с использованием библиотеки bouquet (по ссылке https://github.com/GRizzi91/bouquet) и распространяется по лицензии Apache 2.0
 
