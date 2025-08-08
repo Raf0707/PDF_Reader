@@ -1,36 +1,32 @@
 package raf.console.pdfreader.ui.about
 
-import android.content.*
-import android.graphics.drawable.Icon
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.*
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.tom_roush.pdfbox.BuildConfig
 import raf.console.archnotes.utils.ChromeCustomTabUtil
 import raf.console.pdfreader.R
 import raf.console.pdfreader.ui.theme.AppTheme
@@ -52,238 +48,287 @@ class AppAboutActivity : ComponentActivity() {
 }
 
 @Composable
-fun AboutScreen(onBack: () -> Unit) {
+fun AboutScreen(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
+    val versionName = "v1.0.0"
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(16.dp, 16.dp, 16.dp, 0.dp)
     ) {
-        // Кнопка "Назад"
-        SelectionElement(
-            icon = painterResource(R.drawable.back),
-            title = "Назад",
-            text = "Вернуться на главный экран"
-        ) { onBack() }
-
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.code_24px),
-            title = "Исходный код",
-            text = "Открыть исходный код приложения"
-        ) {
-            ChromeCustomTabUtil.openUrl(
-                context = context,
-                url = "https://github.com/Raf0707/PDF_Reader",
-            )
-        }
-
-        val annotatedText = buildAnnotatedString {
-            val baseTextStyle = MaterialTheme.typography.titleMedium.toSpanStyle()
-            val defaultColor = MaterialTheme.colorScheme.onSurface
-            val bouquetColor = MaterialTheme.colorScheme.primary
-
-            withStyle(style = baseTextStyle.copy(color = defaultColor)) {
-                append("Данный проект выполнен с использованием проекта ")
-                pushStringAnnotation(
-                    tag = "URL",
-                    annotation = "https://github.com/GRizzi91/bouquet"
-                )
-                withStyle(
-                    style = baseTextStyle.copy(
-                        color = bouquetColor,
-                        fontWeight = FontWeight.Bold,
-                        textDecoration = TextDecoration.Underline
-                    )
+        // Header card with back + logo + name
+        item {
+            ElevatedCard(shape = ShapeDefaults.Large) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    append("bouquet")
-                }
-                pop()
-                append(" и распространяется по лицензии Apache 2.0")
-            }
-        }
+                    // Кнопка назад (по клику — onBack)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.back),
+                            contentDescription = "Назад",
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { onBack() }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "О приложении",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.license),
-            title = "Лицензия",
-            text = annotatedText,
-            onTextClick = { url ->
-                ChromeCustomTabUtil.openUrl(context, url)
-            }
-        ) {
-            ChromeCustomTabUtil.openUrl(
-                context = context,
-                url = "https://github.com/Raf0707/PDF_Reader/blob/master/LICENSE"
-            )
-        }
+                    Spacer(modifier = Modifier.height(8.dp))
 
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.apps_24px),
-            title = "Другие приложения",
-            text = "Скачивайте другие приложения в каталоге RuStore"
-        ) {
-            ChromeCustomTabUtil.openUrl(
-                context = context,
-                url = "https://www.rustore.ru/catalog/developer/90b1826e",
-            )
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText(
-                "Ссылка на другие приложения",
-                "https://www.rustore.ru/catalog/developer/90b1826e"
-            )
-            clipboard.setPrimaryClip(clip)
-        }
+                    // Логотип приложения — замени на свой ресурс при желании
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                        contentDescription = "App Icon",
+                        modifier = Modifier.size(96.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(id = R.string.app_name),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
 
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.github_24),
-            title = "Профиль разработчика",
-            text = "Открыть Github-профиль разработчика"
-        ) {
-            ChromeCustomTabUtil.openUrl(
-                context = context,
-                url = "https://github.com/Raf0707",
-            )
-        }
-
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.info_24px),
-            title = "v1.0.0",
-            text = "Предложите идею или сообщите об ошибке"
-        ) {
-            val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                data = Uri.parse("mailto:")
-                putExtra(Intent.EXTRA_EMAIL, arrayOf("raf_android-dev@mail.ru"))
-                putExtra(Intent.EXTRA_SUBJECT, "Обратная связь")
-                putExtra(Intent.EXTRA_TEXT, "Здравствуйте,\n\n")
-            }
-            try {
-                context.startActivity(Intent.createChooser(emailIntent, "Выберите почтовый клиент"))
-            } catch (e: Exception) {
-                Toast.makeText(context, "Нет почтовых клиентов", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        SelectionElement(
-            icon = painterResource(id = raf.console.pdfreader.R.drawable.shareapp),
-            title = "Поделиться приложением",
-            text = "Поделитесь приложением «PDF Reader без рекламы»"
-        ) {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText(
-                "Скачайте приложение",
-                "https://www.rustore.ru/catalog/app/raf.console.pdfreader"
-            )
-            clipboard.setPrimaryClip(clip)
-
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(
-                    Intent.EXTRA_TEXT,
-                    "Скачайте приложение «PDF Reader без рекламы» в каталоге RuStore \n\n https://www.rustore.ru/catalog/app/raf.console.pdfreader"
-                )
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Поделиться приложением"))
-        }
-    }
-}
-
-
-@Composable
-fun SelectionElement(
-    icon: Painter,        // <- теперь это Painter
-    title: String,
-    text: String,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Image(
-                painter = icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(end = 12.dp)
-                    .size(24.dp)
-            )
-
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SelectionElement(
-    icon: Painter,
-    title: String,
-    text: AnnotatedString? = null,
-    onTextClick: ((String) -> Unit)? = null,  // Новый параметр для обработки кликов по ссылкам
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Image(
-                painter = icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(end = 12.dp)
-                    .size(24.dp)
-            )
-
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                text?.let {
-                    ClickableText(
-                        text = it,
-                        style = MaterialTheme.typography.titleMedium,
-                        onClick = { offset ->
-                            text.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                                .firstOrNull()?.let { annotation ->
-                                    onTextClick?.let { it1 -> it1(annotation.item) }
-                                }
+                    // Пункты
+                    ListItem(
+                        title = "Сообщить об ошибке",
+                        subtitle = "Открыть почтовый клиент",
+                        icon = painterResource(id = R.drawable.info_24px),
+                    ) {
+                        val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            data = Uri.parse("mailto:")
+                            putExtra(Intent.EXTRA_EMAIL, arrayOf("raf_android-dev@mail.ru"))
+                            putExtra(Intent.EXTRA_SUBJECT, "Обратная связь")
+                            putExtra(Intent.EXTRA_TEXT, "Здравствуйте,\n\n")
                         }
+                        try {
+                            context.startActivity(
+                                Intent.createChooser(emailIntent, "Выберите почтовый клиент")
+                            )
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Нет почтовых клиентов", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    ListItem(
+                        title = "Оценить приложение",
+                        subtitle = "Открыть страницу в RuStore",
+                        icon = painterResource(id = R.drawable.rate),
+                    ) {
+                        ChromeCustomTabUtil.openUrl(
+                            context = context,
+                            url = "https://www.rustore.ru/catalog/app/raf.console.pdfreader",
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    ListItem(
+                        title = "Другие приложения",
+                        subtitle = "Смотреть приложения разработчика в RuStore",
+                        icon = painterResource(id = R.drawable.apps_24px),
+                    ) {
+                        ChromeCustomTabUtil.openUrl(
+                            context = context,
+                            url = "https://www.rustore.ru/catalog/developer/90b1826e",
+                        )
+                        // копируем ссылку в буфер
+                        val clipboard =
+                            context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText(
+                                "Ссылка на другие приложения",
+                                "https://www.rustore.ru/catalog/developer/90b1826e"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+
+        // Соц.ссылки / профиль / исходники / лицензия
+        item {
+            ElevatedCard(shape = ShapeDefaults.Large) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    ListItem(
+                        title = "Профиль разработчика",
+                        subtitle = "Открыть профиль на GitHub",
+                        icon = painterResource(id = R.drawable.github_24),
+                    ) {
+                        ChromeCustomTabUtil.openUrl(
+                            context = context,
+                            url = "https://github.com/Raf0707",
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    ListItem(
+                        title = "Исходный код",
+                        subtitle = "Открыть репозиторий на GitHub",
+                        icon = painterResource(id = R.drawable.code_24px),
+                    ) {
+                        ChromeCustomTabUtil.openUrl(
+                            context = context,
+                            url = "https://github.com/Raf0707/PDF_Reader",
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    ListItem(
+                        title = "Лицензия",
+                        subtitle = "Apache 2.0 (использует проект bouquet)",
+                        icon = painterResource(id = R.drawable.license),
+                    ) {
+                        ChromeCustomTabUtil.openUrl(
+                            context = context,
+                            url = "https://github.com/Raf0707/PDF_Reader/blob/master/LICENSE",
+                        )
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    ListItem(
+                        title = "Версия приложения",
+                        subtitle = versionName,
+                        icon = painterResource(id = R.drawable.update_24)
                     )
                 }
             }
+        }
+
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+
+        // Рек/кросс-промо/поделиться
+        item {
+            ElevatedCard(shape = ShapeDefaults.Large) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.shareapp),
+                        contentDescription = "Share Icon",
+                        modifier = Modifier
+                            .padding(top = 16.dp)
+                            .size(96.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Поделиться приложением",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "«PDF Reader без рекламы»",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    ListItem(
+                        title = "Поделиться",
+                        subtitle = "Отправить ссылку другу",
+                        icon = painterResource(id = R.drawable.shareapp),
+                    ) {
+                        val link = "https://www.rustore.ru/catalog/app/raf.console.pdfreader"
+                        // буфер
+                        val clipboard =
+                            context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText("Скачайте приложение", link)
+                        )
+                        // шаринг
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Скачайте приложение «PDF Reader» в каталоге RuStore\n\n$link"
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(share, "Поделиться приложением"))
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ListItem(
+    title: String = "Заголовок",
+    subtitle: String = "Описание действия",
+    icon: Painter = painterResource(id = R.drawable.ic_launcher_foreground),
+    onClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 16.dp, horizontal = 16.dp)
+    ) {
+        Icon(
+            painter = icon,
+            contentDescription = null,
+            modifier = Modifier
+                .size(48.dp)
+                .padding(end = 16.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = 16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

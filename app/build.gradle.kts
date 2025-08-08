@@ -59,6 +59,9 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
+    implementation("com.yandex.android:mobileads:7.11.0")
+    implementation("com.yandex.android:mobileads-mediation:7.9.0.0")
+
     implementation("com.google.accompanist:accompanist-pager:0.28.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
