@@ -13,6 +13,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
@@ -91,9 +92,14 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import raf.console.pdfreader.ads.AdManagerHolder
+import raf.console.pdfreader.ads.InterstitialAdManager
+import raf.console.pdfreader.ads.YandexBannerAd
 import kotlin.math.max
 
 
@@ -109,6 +115,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         preferences = AppPreferences(this)
+
+        AdManagerHolder.initialize(applicationContext)
+        AdManagerHolder.preloadInterstitialAd(this, "R-M-16660854-3") // Открыть файл
+        AdManagerHolder.preloadInterstitialAd(this, "R-M-16660854-5") // Перед PDF
+        AdManagerHolder.preloadInterstitialAd(this, "R-M-16660854-6")
 
         window.setFlags(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
@@ -196,20 +207,33 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.padding(padding)) {
                             when (val actualState = state.value) {
                                 null -> SelectionView(viewModel)
-                                is VerticalPdfReaderState -> PDFView(
-                                    pdfState = actualState,
-                                    onBack = { viewModel.clearResource() },
-                                    onOpenDocument = { openDocumentPicker() },
-                                    viewModel = viewModel
-                                )
-                                is HorizontalPdfReaderState -> HPDFView(
-                                    pdfState = actualState,
-                                    onBack = { viewModel.clearResource() },
-                                    onOpenDocument = { openDocumentPicker() },
-                                    viewModel = viewModel
-                                )
+
+                                is VerticalPdfReaderState -> InterstitialGate(
+                                    adUnitId = "R-M-16660854-5",
+                                    showKey = actualState.resource.toString() // <- важный ключ
+                                ) {
+                                    PDFView(
+                                        pdfState = actualState,
+                                        onBack = { viewModel.clearResource() },
+                                        onOpenDocument = { openDocumentPicker() },
+                                        viewModel = viewModel
+                                    )
+                                }
+
+                                is HorizontalPdfReaderState -> InterstitialGate(
+                                    adUnitId = "R-M-16660854-5",
+                                    showKey = actualState.resource.toString()
+                                ) {
+                                    HPDFView(
+                                        pdfState = actualState,
+                                        onBack = { viewModel.clearResource() },
+                                        onOpenDocument = { openDocumentPicker() },
+                                        viewModel = viewModel
+                                    )
+                                }
                             }
                         }
+
                     }
                 }
             }
@@ -557,27 +581,79 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun SelectionView(viewModel: PdfViewModel) {
+
         val context: Context = LocalContext.current
+        val interstitialAdManager = remember { InterstitialAdManager(context) }
+        var switchBlocked by remember { mutableStateOf(false) }
+        val isScrollMode by viewModel.readingMode.collectAsState()
+        val activity = context as? Activity
+
         Column(modifier = Modifier.fillMaxSize()) {
 
             SelectionElement(
                 title = "Открыть файл",
                 text = "Открыть файл в памяти устройства"
             ) {
+                /*val activity = (context as? Activity)
+                if (activity != null) {
+                    AdManagerHolder.showInterstitialAd(
+                        activity = activity,
+                        adUnitId = "R-M-16660854-6",   // твой слот для «Открыть файл»
+                        timeoutMs = 1500,
+                        onShown = { /* необязательно */ },
+                        onDismissed = { openDocumentPicker() }
+                    )
+                } else {
+                    openDocumentPicker()
+                }*/
                 openDocumentPicker()
             }
 
+
+
+            YandexBannerAd(
+                "R-M-16660854-1",
+                Modifier
+            )
+
             Row(
-                modifier = Modifier
-                    .padding(16.dp),
+                modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
-            ){
+            ) {
                 Text(text = "Прокрутка")
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(Modifier.width(16.dp))
+
                 Switch(
-                    checked = this@MainActivity.viewModel.switchState,
-                    onCheckedChange = { this@MainActivity.viewModel.toggleReadingMode() }
+                    checked = isScrollMode,
+                    enabled = !switchBlocked,
+                    onCheckedChange = { target ->
+                        if (activity == null) {
+                            viewModel.setReadingMode(target)
+                            return@Switch
+                        }
+                        switchBlocked = true
+                        var adShown = false
+
+                        AdManagerHolder.showInterstitialAd(
+                            activity = activity,
+                            adUnitId = "R-M-16660854-6",
+                            onShown = { adShown = true },
+                            onDismissed = {
+                                viewModel.setReadingMode(target)
+                                switchBlocked = false
+                            }
+                        )
+
+                        // Фолбэк, если показ не стартовал быстро
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            if (!adShown) {
+                                viewModel.setReadingMode(target)
+                                switchBlocked = false
+                            }
+                        }, 200)
+                    }
                 )
+
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(text = "Страницы")
             }
@@ -589,8 +665,35 @@ class MainActivity : ComponentActivity() {
                 title = "О приложении",
                 text = "Информация о приложении, лицензии и разработчике"
             ) {
-                context.startActivity(Intent(context, AppAboutActivity::class.java))
+                val activity = (context as? Activity)
+
+                if (activity != null) {
+                    var shown = false
+
+                    // Попытка показать межстраничную
+                    AdManagerHolder.showInterstitialAd(
+                        activity = activity,
+                        "R-M-16660854-3",
+                        onShown = { shown = true },
+                        onDismissed = {
+                            // Реклама закрылась — идём на About
+                            context.startActivity(Intent(context, AppAboutActivity::class.java))
+                        }
+                    )
+
+                    // Fallback: если за короткое время реклама не начала показ — идём сразу
+                    // (простая задержка, чтобы не было двойной навигации, если объявление вдруг покажется)
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (!shown) {
+                            context.startActivity(Intent(context, AppAboutActivity::class.java))
+                        }
+                    }, 200)
+                } else {
+                    // На всякий — если контекст не Activity
+                    context.startActivity(Intent(context, AppAboutActivity::class.java))
+                }
             }
+
 
 
 
@@ -614,6 +717,13 @@ class MainActivity : ComponentActivity() {
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(Modifier.height(8.dp))
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            YandexBannerAd(
+                "R-M-16660854-2",
+                Modifier
+            )
 
 
             /*SelectionElement(
@@ -758,7 +868,7 @@ class MainActivity : ComponentActivity() {
         // === Zoom ===
         var scale by remember { mutableStateOf(1f) }
         val minScale = 0.5f
-        val maxScale = 4f
+        val maxScale = 10f
         val step = 0.25f
         fun formatScale(s: Float) =
             s.toInt().let { i -> if (kotlin.math.abs(s - i) < 0.001f) "${i}x" else String.format("%.1fx", s) }
@@ -785,6 +895,30 @@ class MainActivity : ComponentActivity() {
             val overflow = (contentH * scale - containerH) / 2f
             val maxOff = max(0f, overflow)
             return y.coerceIn(-maxOff, +maxOff)
+        }
+
+        // === Показ рекламы перед выходом ===
+        fun showBackAdThen(goBack: () -> Unit) {
+            val activity = context as? Activity
+            if (activity == null) {
+                goBack()
+                return
+            }
+            var shown = false
+            AdManagerHolder.showInterstitialAd(
+                activity = activity,
+                adUnitId = "R-M-16660854-5",   // <-- твой ID для выхода из PDF
+                onShown = { shown = true },
+                onDismissed = { goBack() }
+            )
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (!shown) goBack()
+            }, 200)
+        }
+
+        // Ловим системную кнопку Back
+        BackHandler {
+            showBackAdThen(onBack)
         }
 
         LaunchedEffect(pdfState.error) {
@@ -831,25 +965,18 @@ class MainActivity : ComponentActivity() {
                             offsetX = clampX(offsetX)
                             offsetY = clampY(offsetY)
                         }
-                        // ОДИН обработчик, пани по X и Y, только если есть зум
                         .pointerInput(scale, contentW, contentH, containerW, containerH) {
                             awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                var dragging = false
+                                awaitFirstDown(requireUnconsumed = false)
                                 do {
                                     val event = awaitPointerEvent()
                                     val pan = event.calculatePan()
                                     if (scale > 1f) {
-                                        dragging = true
                                         offsetX = clampX(offsetX + pan.x)
                                         offsetY = clampY(offsetY + pan.y)
-                                        // забираем событие, чтобы не скроллился список
                                         event.changes.forEach { it.consume() }
                                     }
                                 } while (event.changes.any { it.pressed })
-                                if (!dragging) {
-                                    // если не пани, ничего не поглощали — вертикальный скролл работает как обычно
-                                }
                             }
                         }
                         .graphicsLayer {
@@ -883,7 +1010,16 @@ class MainActivity : ComponentActivity() {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ЛЕВО
+                    // Кнопка Назад
+                    IconButton(onClick = { showBackAdThen(onBack) }) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Назад",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    // ЛЕВО: Страница + Share
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
@@ -964,7 +1100,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ==== Диалог: перейти на страницу ====
+            // ==== Диалоги ====
             if (showGotoDialog) {
                 AlertDialog(
                     onDismissRequest = { showGotoDialog = false },
@@ -1001,7 +1137,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // ==== Диалог: сбросить масштаб ====
             if (showResetZoomDialog) {
                 AlertDialog(
                     onDismissRequest = { showResetZoomDialog = false },
@@ -1037,6 +1172,7 @@ class MainActivity : ComponentActivity() {
 
 
 
+
     @Composable
     fun HPDFView(
         pdfState: HorizontalPdfReaderState,
@@ -1053,7 +1189,7 @@ class MainActivity : ComponentActivity() {
         // === Zoom ===
         var scale by remember { mutableStateOf(1f) }
         val minScale = 0.5f
-        val maxScale = 4f
+        val maxScale = 10f
         val step = 0.25f
         fun formatScale(s: Float) =
             s.toInt().let { i -> if (kotlin.math.abs(s - i) < 0.001f) "${i}x" else String.format("%.1fx", s) }
@@ -1080,6 +1216,30 @@ class MainActivity : ComponentActivity() {
             val overflow = (contentH * scale - containerH) / 2f
             val maxOff = max(0f, overflow)
             return y.coerceIn(-maxOff, +maxOff)
+        }
+
+        // === Показ рекламы перед выходом ===
+        fun showBackAdThen(goBack: () -> Unit) {
+            val activity = context as? Activity
+            if (activity == null) {
+                goBack()
+                return
+            }
+            var shown = false
+            AdManagerHolder.showInterstitialAd(
+                activity = activity,
+                adUnitId = "R-M-16660854-5",  // <-- твой ID для выхода из PDF
+                onShown = { shown = true },
+                onDismissed = { goBack() }
+            )
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (!shown) goBack()
+            }, 200)
+        }
+
+        // Системная кнопка Back
+        BackHandler {
+            showBackAdThen(onBack)
         }
 
         LaunchedEffect(pdfState.error) {
@@ -1110,7 +1270,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ==== Контент с масштабом и 2D-панорамой ====
+            // ==== Контент с масштабированием и 2D-панорамой ====
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1127,13 +1287,11 @@ class MainActivity : ComponentActivity() {
                         }
                         .pointerInput(scale, contentW, contentH, containerW, containerH) {
                             awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                var dragging = false
+                                awaitFirstDown(requireUnconsumed = false)
                                 do {
                                     val event = awaitPointerEvent()
                                     val pan = event.calculatePan()
                                     if (scale > 1f) {
-                                        dragging = true
                                         offsetX = clampX(offsetX + pan.x)
                                         offsetY = clampY(offsetY + pan.y)
                                         event.changes.forEach { it.consume() }
@@ -1172,6 +1330,15 @@ class MainActivity : ComponentActivity() {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Кнопка Назад
+                    IconButton(onClick = { showBackAdThen(onBack) }) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Назад",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
                     // ЛЕВО
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1253,7 +1420,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ==== Диалог: перейти на страницу ====
+            // ==== Диалоги ====
             if (showGotoDialog) {
                 AlertDialog(
                     onDismissRequest = { showGotoDialog = false },
@@ -1290,7 +1457,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // ==== Диалог: сбросить масштаб ====
             if (showResetZoomDialog) {
                 AlertDialog(
                     onDismissRequest = { showResetZoomDialog = false },
@@ -1440,4 +1606,61 @@ class MainActivity : ComponentActivity() {
 
 private const val OPEN_DOCUMENT_REQUEST_CODE = 0x33
 
+@Composable
+private fun InterstitialGate(
+    adUnitId: String,
+    content: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    var allowed by remember(adUnitId) { mutableStateOf(false) }
 
+    LaunchedEffect(adUnitId) {
+        val activity = context as? Activity
+        if (activity == null) {
+            allowed = true; return@LaunchedEffect
+        }
+        AdManagerHolder.showInterstitialAd(
+            activity = activity,
+            adUnitId = adUnitId,
+            timeoutMs = 1500,
+            onDismissed = { allowed = true },
+            onShown = { /* опционально */ }
+        )
+    }
+
+    if (allowed) content() else {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+    }
+}
+
+@Composable
+fun InterstitialGate(
+    adUnitId: String,
+    showKey: Any,                 // ключ «уникальности» показа (например, URI файла)
+    timeoutMs: Long = 1500,
+    content: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    var allowed by remember(showKey) { mutableStateOf(false) } // сбрасываем только при смене ключа
+
+    LaunchedEffect(showKey) {
+        val activity = context as? Activity
+        if (activity == null) { allowed = true; return@LaunchedEffect }
+
+        AdManagerHolder.showInterstitialAd(
+            activity = activity,
+            adUnitId = adUnitId,
+            timeoutMs = timeoutMs,
+            onShown = { /* опционально */ },
+            onDismissed = { allowed = true }
+        )
+    }
+
+    if (allowed) content() else {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+    }
+}

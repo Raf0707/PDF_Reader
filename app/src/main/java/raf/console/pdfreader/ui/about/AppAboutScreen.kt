@@ -1,5 +1,6 @@
 package raf.console.pdfreader.ui.about
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -28,7 +29,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.tom_roush.pdfbox.BuildConfig
 import raf.console.archnotes.utils.ChromeCustomTabUtil
+import raf.console.pdfreader.MainActivity
 import raf.console.pdfreader.R
+import raf.console.pdfreader.ads.AdManagerHolder
 import raf.console.pdfreader.ui.theme.AppTheme
 
 class AppAboutActivity : ComponentActivity() {
@@ -81,8 +84,34 @@ fun AboutScreen(
                             contentDescription = "Назад",
                             modifier = Modifier
                                 .size(24.dp)
-                                .clickable { onBack() }
+                                .clickable {
+                                    val activity = (context as? Activity)
+
+                                    if (activity != null) {
+                                        var adShown = false
+
+                                        AdManagerHolder.showInterstitialAd(
+                                            activity = activity,
+                                            adUnitId = "R-M-16660854-3",
+                                            onShown = { adShown = true },
+                                            onDismissed = {
+                                                onBack()
+                                            }
+                                        )
+
+                                        // Если реклама не начала показываться за 200 мс — идём назад
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            if (!adShown) {
+                                                onBack()
+                                            }
+                                        }, 200)
+                                    } else {
+                                        onBack()
+                                    }
+                                }
                         )
+
+
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "О приложении",

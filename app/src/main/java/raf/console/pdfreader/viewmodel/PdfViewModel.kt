@@ -28,6 +28,17 @@ class PdfViewModel(
 
     var switchState by mutableStateOf(preferences.getReadingMode())
 
+    private val _readingMode = MutableStateFlow(false) // false = Страницы, true = Прокрутка (как тебе нужно)
+    val readingMode: StateFlow<Boolean> = _readingMode
+
+    fun setReadingMode(enabled: Boolean) {
+        _readingMode.value = enabled
+        // при желании сохрани в Preferences
+        // prefs.setReadingMode(enabled)
+    }
+
+    //fun toggleReadingMode() = setReadingMode(!readingMode.value)
+
     init {
         viewModelScope.launch {
             preferences.getLastPdfUri()?.let { uriString ->
@@ -100,8 +111,10 @@ class PdfViewModel(
     }
 
     fun toggleReadingMode() {
-        switchState = !switchState
-        preferences.saveReadingMode(switchState)
+        val newValue = !_readingMode.value
+        _readingMode.value = newValue
+        preferences.saveReadingMode(newValue)
+
         _stateFlow.value?.let { currentState ->
             openResource(currentState.resource, currentState.currentPage)
         }
